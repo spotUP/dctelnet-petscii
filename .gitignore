@@ -23,3 +23,9 @@ build/vbcc-*/**
 build/vbcc-*.info
 build/Build-output*.txt
 build/DCTelnet*.lha
+
+# PETSCII fork: local NDK extraction and test binaries
+.ndk/
+build-log.txt
+test/test_petscii_*
+!test/test_petscii_*.c
