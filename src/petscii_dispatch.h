@@ -38,6 +38,16 @@ void petscii_dispatch_byte(struct PetsciiDispatchState *st, uint8_t byte,
 #define PETSCII_MAX_OUT_PER_BYTE 17
 
 /*
+ * Written to the console once when it opens in PETSCII mode: turns the
+ * console's own auto-wrap (DECAWM) off. The stream functions below emit
+ * the C64's 40-column wrap themselves; a console that also wrapped added a
+ * second line feed on every full row once the 16-pixel PETSCII font made
+ * the window exactly 40 columns wide (ibmcon.device wraps immediately
+ * after the last column). ibmcon and console.device both support CSI ?7l.
+ */
+#define PETSCII_CONSOLE_SETUP "\x1b[?7l"
+
+/*
  * v1 rendering path: translates a PETSCII byte stream into the CP437 +
  * ANSI/ECMA-48 CSI escape sequences DCTelnet's existing ibmcon.device
  * console handler already understands (the same ESC_STR "[A".."[D" cursor

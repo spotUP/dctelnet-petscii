@@ -3245,6 +3245,10 @@ BOOL OpenDisplay(void)
 
     isAppIconified = FALSE;
 
+    /* After isAppIconified is cleared: ConWrite() drops writes while it is set. */
+    if (isConDeviceOpened && (prefs.flags & FLAG_PETSCII_MODE))
+        ConWrite(PETSCII_CONSOLE_SETUP, sizeof(PETSCII_CONSOLE_SETUP) - 1);
+
     LEDs();
 
     if(!isConnected)
