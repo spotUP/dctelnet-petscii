@@ -266,7 +266,7 @@ static void test_group_summaries(void) {
     struct PrefsStruct p = make(FLAG_PETSCII_MODE | FLAG_BS_DEL_SWAP, "Petscii.font", 8);
     char out[80];
 
-    strcpy(p.displayidstr, "PETSCII");
+    strcpy(p.displayidstr, "VT102");    /* PETSCII Mode sends "PETSCII" regardless */
     strcpy(p.xferlibrary, "xprzmodem.library");
     SitePrefs_GroupSummary(SITE_GROUP_SCREEN, &p, out, sizeof(out));
     assert(strcmp(out, "Petscii 8, 640x256, 16 colours") == 0);
@@ -282,7 +282,7 @@ static void test_group_summaries(void) {
     SitePrefs_GroupSummary(SITE_GROUP_SCREEN, &p, out, 20);          /* truncates safely */
     assert(strlen(out) == 19);
     SitePrefs_GroupSummary(SITE_GROUP_TERMINAL, &p, out, sizeof(out));
-    assert(strcmp(out, "XEM xemvt340.library, type PETSCII") == 0);
+    assert(strcmp(out, "XEM xemvt340.library, type VT102") == 0);
     SitePrefs_GroupSummary(SITE_GROUP_KEYBOARD, &p, out, sizeof(out));
     assert(strcmp(out, "Return = CR + LF") == 0);
     p.flags = 0;

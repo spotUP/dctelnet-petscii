@@ -297,8 +297,10 @@ void SitePrefs_GroupSummary(ULONG group, const struct PrefsStruct *p, char *out,
         }
         else
             put(out, &len, max, "ANSI");
+        // The terminal type the board is told (TelnetSendTType): PETSCII Mode
+        // always says "PETSCII", whatever Display ID holds.
         put(out, &len, max, ", type ");
-        put(out, &len, max, p->displayidstr);
+        put(out, &len, max, (p->flags & FLAG_PETSCII_MODE) ? "PETSCII" : p->displayidstr);
         if (p->flags & FLAG_RAW_CONNECTION) put(out, &len, max, ", Raw Connection");
         if (p->flags & FLAG_LOCAL_ECHO)     put(out, &len, max, ", Local Echo");
     }
