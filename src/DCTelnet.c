@@ -968,6 +968,34 @@ UWORD AppScreenDepth(struct Screen *s)
     return s->BitMap.Depth;
 }
 
+/*
+ * Backfill hook of the terminal window (layers.library protocol: A0 hook,
+ * A2 RastPort, A1 message). Whatever the window exposes -- a resize on the
+ * Workbench, a depth arrange -- is terminal background: ANSI black on its
+ * own pen, not the Workbench's grey pen 0 (ibmcon clears to ANSI black).
+ */
+struct LayerBackFillMsg
+{
+    struct Layer    *layer;
+    struct Rectangle bounds;
+    LONG             offsetX, offsetY;
+};
+
+static ULONG __saveds TerminalBackFill(__reg("a0") struct Hook *hook,
+                                       __reg("a2") struct RastPort *rp,
+                                       __reg("a1") struct LayerBackFillMsg *msg)
+{
+    struct RastPort crp = *rp;
+
+    crp.Layer = NULL;           // straight into the bitmap: layers holds the lock
+    SetDrMd(&crp, JAM2);
+    SetAPen(&crp, ansiOwnPens ? ansiPens[0] : 0);
+    RectFill(&crp, msg->bounds.MinX, msg->bounds.MinY, msg->bounds.MaxX, msg->bounds.MaxY);
+    return 0;
+}
+
+static struct Hook terminalBackFill = { { NULL, NULL }, (HOOKFUNC)TerminalBackFill, NULL, NULL };
+
 // A pen DCTelnet draws with itself (LEDs, the Quit item), given as an ANSI
 // colour in ibmcon's order: on 32+ colours it lives on the ANSI pens.
 static UWORD LegacyPen(UWORD ibmconIndex)
@@ -3592,7 +3620,7 @@ void OpenAppWindow(void)
 
         CheckDimensions(&newWin);
 
-        win = OpenWindow(&newWin);
+        win = OpenWindowTags(&newWin, WA_BackFill, (ULONG)&terminalBackFill, TAG_END);
 
         // Be sure to unlock the public screen when done with it.  Note that once a window is open
         // on the screen the program does not need to hold the screen lock, as the window acts as a
@@ -3687,7 +3715,7 @@ void OpenAppWindow(void)
                 WFLG_ACTIVATE |
                 WFLG_BACKDROP;
 
-        win = OpenWindow(&newWin);
+        win = OpenWindowTags(&newWin, WA_BackFill, (ULONG)&terminalBackFill, TAG_END);
     }
 
     SetFont(win->RPort, petsciiFont ? petsciiFont : ansiFont);
