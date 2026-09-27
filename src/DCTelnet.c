@@ -2749,7 +2749,11 @@ static void GetWindowMsg(struct Window *wwin)
             struct MenuItem *item = NULL;
             UWORD nextMenuNumber = MENUNULL;
             enum MenuItemID menuID;
+            // What the user changes by hand during an entry session is
+            // theirs everywhere: carried into the global settings below.
+            static struct PrefsStruct menuBefore;
 
+            menuBefore = prefs;
             LEDs();
 
             while (menuNumber != MENUNULL)
@@ -3145,6 +3149,8 @@ static void GetWindowMsg(struct Window *wwin)
 
                 menuNumber = nextMenuNumber;
             } // while
+            if (sessionSettingsId)      // else prefs are the global settings already
+                SitePrefs_CarryChange(&globalPrefs, &menuBefore, &prefs);
             break;
         }  // case IDCMP_MENUPICK
 

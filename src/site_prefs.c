@@ -108,6 +108,35 @@ BOOL SitePrefs_DisplayDiffers(const struct PrefsStruct *a, const struct PrefsStr
     return *reopenScreen || windows;
 }
 
+#include <stddef.h>
+
+/* Every field of struct PrefsStruct but flags (carried bit by bit). */
+static const struct { size_t offset, size; } prefsFields[] =
+{
+#define F(m) { offsetof(struct PrefsStruct, m), sizeof(((struct PrefsStruct *)0)->m) }
+    F(DisplayID), F(DisplayWidth), F(DisplayHeight), F(DisplayDepth), F(fontsize),
+    F(fontname), F(downloadpath), F(xferlibrary), F(xferinit), F(color),
+    F(win_left), F(win_top), F(win_width), F(win_height),
+    F(sb_left), F(sb_top), F(sb_width), F(sb_height),
+    F(uploadpath), F(displaydriver), F(sb_lines), F(displayidstr),
+    F(toolBarWin_left), F(toolBarWin_top), F(ansiMagic), F(ansiRGB)
+#undef F
+};
+
+void SitePrefs_CarryChange(struct PrefsStruct *global, const struct PrefsStruct *before,
+                           const struct PrefsStruct *after)
+{
+    const UBYTE *b = (const UBYTE *)before, *a = (const UBYTE *)after;
+    UBYTE *g = (UBYTE *)global;
+    ULONG changed = before->flags ^ after->flags;
+    size_t i;
+
+    for (i = 0; i < sizeof(prefsFields) / sizeof(prefsFields[0]); i++)
+        if (memcmp(b + prefsFields[i].offset, a + prefsFields[i].offset, prefsFields[i].size) != 0)
+            memcpy(g + prefsFields[i].offset, a + prefsFields[i].offset, prefsFields[i].size);
+    global->flags = (global->flags & ~changed) | (after->flags & changed);
+}
+
 BOOL SitePrefs_OnlyLookDiffers(const struct PrefsStruct *a, const struct PrefsStruct *b)
 {
     static struct PrefsStruct look;

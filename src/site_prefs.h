@@ -58,6 +58,13 @@ void SitePrefs_Restore(struct PrefsStruct *live, const struct PrefsStruct *globa
 void SitePrefs_ForSave(struct PrefsStruct *out, const struct PrefsStruct *live,
                        const struct PrefsStruct *global, BOOL sessionActive);
 
+/* A setting the user changed by hand during an entry session (before ->
+ * after) is theirs everywhere: every field that changed is carried into
+ * global too, whole (a font name is never half copied), and the flags bit
+ * by bit. Fields that did not change keep global's value. */
+void SitePrefs_CarryChange(struct PrefsStruct *global, const struct PrefsStruct *before,
+                           const struct PrefsStruct *after);
+
 /* TRUE when a and b differ only in the terminal's look -- the font and the
  * palette. On the Workbench only the console reopens for that; the window
  * stays where it is. */

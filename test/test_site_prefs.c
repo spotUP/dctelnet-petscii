@@ -293,6 +293,40 @@ static void test_font_or_palette_change_is_a_look_change(void) {
     assert(!SitePrefs_OnlyLookDiffers(&a, &b));
 }
 
+/* A font chosen from the menu while connected to an entry with its own
+ * font went back to topaz at disconnect: the change lived only in the
+ * session. What the user changes by hand is carried into the global
+ * settings -- whole fields, flags bit by bit, the rest untouched. */
+static void test_a_manual_change_during_a_session_is_kept_globally(void) {
+    struct PrefsStruct global = make(FLAG_BS_DEL_SWAP, "topaz.font", 8);
+    struct PrefsStruct before = make(FLAG_RETURN_CRLF, "TopazPro.font", 16), after = before;
+    struct PrefsStruct pristine;
+
+    strcpy(global.xferlibrary, "xprzmodem.library");
+    strcpy(before.xferlibrary, "xprkermit.library");        /* the entry's */
+    after = before;
+    strcpy(after.fontname, "Thin711.font"); after.fontsize = 11;
+    after.flags |= FLAG_LOCAL_ECHO;
+    pristine = global;
+    SitePrefs_CarryChange(&global, &before, &after);
+    assert(strcmp(global.fontname, "Thin711.font") == 0 && global.fontsize == 11);
+    assert(global.flags == (FLAG_BS_DEL_SWAP | FLAG_LOCAL_ECHO));  /* only the changed bit */
+    assert(strcmp(global.xferlibrary, "xprzmodem.library") == 0);  /* not changed: kept */
+    /* Every field is in the carry table: a struct with every byte changed
+     * arrives whole. */
+    memset(&before, 0x11, sizeof(before));
+    memset(&after, 0x5A, sizeof(after));
+    before.flags = ~after.flags;                 /* every flag bit changed too */
+    memset(&global, 0, sizeof(global));
+    SitePrefs_CarryChange(&global, &before, &after);
+    assert(memcmp(&global, &after, sizeof(global)) == 0);
+    before = make(FLAG_RETURN_CRLF, "TopazPro.font", 16);
+    after = before;                                                  /* nothing changed */
+    global = pristine;
+    SitePrefs_CarryChange(&global, &before, &after);
+    assert(memcmp(&global, &pristine, sizeof(global)) == 0);
+}
+
 /* The settings window's one-line summary per group. */
 static void test_group_summaries(void) {
     struct PrefsStruct p = make(FLAG_PETSCII_MODE | FLAG_BS_DEL_SWAP, "Petscii.font", 8);
@@ -349,6 +383,7 @@ int main(void) {
     test_a_dcs2_file_loads_with_its_palette_converted();
     test_differing_groups_names_what_changed();
     test_font_or_palette_change_is_a_look_change();
+    test_a_manual_change_during_a_session_is_kept_globally();
     test_group_summaries();
     test_entry_function_keys_swap_in_and_back();
     test_login_macro_expands_codes();
