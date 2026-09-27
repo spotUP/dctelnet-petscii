@@ -4160,45 +4160,45 @@ BOOL OpenDisplay(void)
         if(flags & AFF_68060) cpu = '6';
 
 
+        // One labelled line per fact, each shorter than 80 columns: the
+        // engine, the screen, and the grid ibmcon measured.
+        static char details[200];
+
+        details[0] = 0;
         if(drivertype == DRIVER_XEM_LIB)
             dispEngine = prefs.displaydriver;
         else
         {
-            // Which ibmcon runs and how it draws the ANSI colours: it is
-            // opened from DEVS:, not from the Devs drawer next to DCTelnet.
-            static char engine[240];
-            char grid[96];
+            static char engine[80];
+            char screenInfo[80];
             struct TextFont *cell = win->RPort->Font;
             UWORD cols, rows;
             struct Library *dev = (struct Library *)writeConsoleReq->io_Device;
 
-            mysprintf(engine, "ibmcon.device %ld.%ld from %s, %ld bit planes",
-                      (LONG)dev->lib_Version, (LONG)dev->lib_Revision, consoleFrom,
-                      (LONG)AppScreenDepth(scr));
+            mysprintf(engine, "ibmcon.device %ld.%ld from %s",
+                      (LONG)dev->lib_Version, (LONG)dev->lib_Revision, consoleFrom);
+            mysprintf(screenInfo, "%ld bit planes", (LONG)AppScreenDepth(scr));
             if (ansiOwnPens && penTableError)
-                strlcat(engine, "\r\n  ANSI colours NOT on their own pens: this ibmcon is\r\n"
-                                "  older than 1.5 -- copy Devs/ibmcon.device to DEVS:",
-                        sizeof(engine));
+                strlcat(screenInfo, ", ANSI colours on pens 0-15 (old ibmcon)", sizeof(screenInfo));
             else if (ansiOwnPens)
-                strlcat(engine, ", ANSI colours on their own pens", sizeof(engine));
-            // The grid ibmcon should measure from the same window: rows that
-            // do not fit are drawn below the edge and lost.
+                strlcat(screenInfo, ", ANSI colours on their own pens", sizeof(screenInfo));
             TerminalGrid(&cols, &rows);
-            mysprintf(grid, "\r\n  Text area: %ld x %ld characters (font %ld x %ld)",
-                      (LONG)cols, (LONG)rows, (LONG)cell->tf_XSize, (LONG)cell->tf_YSize);
-            strlcat(engine, grid, sizeof(engine));
+            mysprintf(details, "\2330;1;36mScreen: \23337m%s\r\n\r\n"
+                               "\23336mText area: \23337m%ld x %ld characters, font %ld x %ld\r\n\r\n",
+                      screenInfo, (LONG)cols, (LONG)rows, (LONG)cell->tf_XSize, (LONG)cell->tf_YSize);
             dispEngine = engine;
         }
 
-        LocalFmt("›0;1;36m\f\r\n\r\n"
-                "Processor: ›37m680%lc0\r\n\r\n›36m"
-                "Kickstart: ›37m%ld.%ld\r\n\r\n›36m"
-                "Display engine: ›37m%s\r\n\r\n›36m"
-                "TCP Stack: ›37m",
+        LocalFmt("\2330;1;36m\f\r\n\r\n"
+                "Processor: \23337m680%lc0\r\n\r\n\23336m"
+                "Kickstart: \23337m%ld.%ld\r\n\r\n\23336m"
+                "Display engine: \23337m%s\r\n\r\n"
+                "%s\23336m"
+                "TCP Stack: \23337m",
                 cpu,
                 (LONG)((struct Library *)SysBase)->lib_Version,
                 (LONG)SysBase->SoftVer,
-                dispEngine);
+                dispEngine, details);
 
         if(SocketBase)
         {
