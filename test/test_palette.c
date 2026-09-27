@@ -57,7 +57,22 @@ static void test_ansi_pen_layout(void) {
     assert(Palette_AnsiPens(24, pens) && pens[0] == 8);   /* RTG true colour */
 }
 
+/* The ANSI palette editor: its Default button, its colour names and its
+ * three sliders, each moving one channel of one colour. */
+static void test_palette_editor_helpers(void) {
+    ULONG rgb[16];
+
+    Palette_Default(rgb);
+    assert(rgb[0] == 0x000000 && rgb[1] == 0xAA0000 && rgb[3] == 0xAA5500 && rgb[15] == 0xFFFFFF);
+    assert(strcmp(Palette_Name(3), "Brown") == 0 && strcmp(Palette_Name(15), "Bright White") == 0);
+    assert(strcmp(Palette_Name(16), "") == 0);
+    assert(Palette_Channel(0x123456, 0) == 0x12 && Palette_Channel(0x123456, 2) == 0x56);
+    assert(Palette_WithChannel(0x123456, 1, 0xFF) == 0x12FF56);
+    assert(Palette_WithChannel(0x123456, 0, 0x00) == 0x003456);
+}
+
 int main(void) {
+    test_palette_editor_helpers();
     test_rgb4_in_ibmcon_order_converts_to_ansi_rgb32();
     test_ansi_rgb32_back_to_rgb4();
     test_ansi_pen_layout();

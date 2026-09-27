@@ -23,4 +23,16 @@ BOOL Palette_AnsiPens(UWORD depth, UBYTE pens[16]);
 /* ibmcon's unit-1 order <-> ANSI order (the swap is its own inverse). */
 int Palette_IbmconToAnsi(int index);
 
+/* The standard ANSI (VGA) colours as 0x00RRGGBB, in ANSI order: what the
+ * palette editor's Default button restores. */
+void Palette_Default(ULONG rgb[16]);
+
+/* The colour's name in ANSI order ("Black" ... "Bright White"). */
+const char *Palette_Name(int ansiIndex);
+
+/* One channel (0 red, 1 green, 2 blue) of a 0x00RRGGBB colour, and the
+ * colour with that channel set to value (0-255). */
+UBYTE Palette_Channel(ULONG rgb, int channel);
+ULONG Palette_WithChannel(ULONG rgb, int channel, UBYTE value);
+
 #endif /* PALETTE_H */
