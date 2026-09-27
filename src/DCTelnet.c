@@ -971,6 +971,20 @@ UWORD AppScreenDepth(struct Screen *s)
     return s->BitMap.Depth;
 }
 
+/**
+ * @brief The text grid of the terminal window, as ibmcon draws it: the
+ *        window's text area (inside a Workbench window's title bar and
+ *        borders) divided by the font cell.
+ */
+static void TerminalGrid(UWORD *cols, UWORD *rows)
+{
+    struct TextFont *cell = win->RPort->Font;
+
+    ScreenFont_Grid(win->Width, win->Height, win->GZZWidth, win->GZZHeight,
+                    (win->Flags & WFLG_GIMMEZEROZERO) != 0,
+                    cell->tf_XSize, cell->tf_YSize, cols, rows);
+}
+
 /*
  * Backfill hook of the terminal window (layers.library protocol: A0 hook,
  * A2 RastPort, A1 message). Whatever the window exposes -- a resize on the
@@ -3964,9 +3978,7 @@ BOOL OpenDisplay(void)
             static char engine[240];
             char grid[96];
             struct TextFont *cell = win->RPort->Font;
-            BOOL gzz = (win->Flags & WFLG_GIMMEZEROZERO) != 0;
-            LONG areaW = gzz ? win->GZZWidth : win->Width;
-            LONG areaH = gzz ? win->GZZHeight : win->Height;
+            UWORD cols, rows;
             struct Library *dev = (struct Library *)writeConsoleReq->io_Device;
 
             mysprintf(engine, "ibmcon.device %ld.%ld, %ld bit planes",
@@ -3980,9 +3992,9 @@ BOOL OpenDisplay(void)
                 strlcat(engine, ", ANSI colours on their own pens", sizeof(engine));
             // The grid ibmcon should measure from the same window: rows that
             // do not fit are drawn below the edge and lost.
-            mysprintf(grid, "\r\n  Text area: %ld x %ld characters (window %ld x %ld, font %ld x %ld)",
-                      areaW / cell->tf_XSize, areaH / cell->tf_YSize, areaW, areaH,
-                      (LONG)cell->tf_XSize, (LONG)cell->tf_YSize);
+            TerminalGrid(&cols, &rows);
+            mysprintf(grid, "\r\n  Text area: %ld x %ld characters (font %ld x %ld)",
+                      (LONG)cols, (LONG)rows, (LONG)cell->tf_XSize, (LONG)cell->tf_YSize);
             strlcat(engine, grid, sizeof(engine));
             dispEngine = engine;
         }

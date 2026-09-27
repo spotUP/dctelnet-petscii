@@ -16,3 +16,16 @@ BOOL ScreenFont_WantsTopazPro(const char *fontname, UWORD resolutionX, UWORD res
 {
     return resolutionX != 0 && resolutionX == resolutionY && same_name(fontname, "topaz.font");
 }
+
+void ScreenFont_Grid(UWORD width, UWORD height, UWORD gzzWidth, UWORD gzzHeight, BOOL gzz,
+                     UWORD cellX, UWORD cellY, UWORD *cols, UWORD *rows)
+{
+    UWORD w = gzz ? gzzWidth : width;
+    UWORD h = gzz ? gzzHeight : height;
+
+    *cols = cellX ? (UWORD)(w / cellX) : 1;
+    *rows = cellY ? (UWORD)(h / cellY) : 1;
+    if (*cols == 0) *cols = 1;
+    if (*rows == 0) *rows = 1;
+    if (*cols > SCREENFONT_MAX_COLS) *cols = SCREENFONT_MAX_COLS;
+}

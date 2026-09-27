@@ -15,8 +15,26 @@ static void test_topaz_on_square_pixels_becomes_topaz_pro(void) {
     assert(!ScreenFont_WantsTopazPro("topaz.font", 0, 0));        /* no display info */
 }
 
+/* DCTelnet told the BBS (telnet NAWS) the outer window size: a 640 x 200
+ * Workbench window with Topaz Pro 8x16 went out as 80 x 12, while its text
+ * area (618 x 184 inside the title bar and borders) holds 77 x 11 -- the grid
+ * ibmcon draws. */
+static void test_window_size_sent_to_the_bbs_is_the_text_area(void) {
+    UWORD cols, rows;
+
+    ScreenFont_Grid(640, 200, 618, 184, TRUE, 8, 16, &cols, &rows);
+    assert(cols == 77 && rows == 11);
+    ScreenFont_Grid(640, 256, 0, 0, FALSE, 8, 8, &cols, &rows);     /* own screen, no GZZ */
+    assert(cols == 80 && rows == 32);
+    ScreenFont_Grid(40, 10, 4, 4, TRUE, 8, 16, &cols, &rows);       /* never below 1 x 1 */
+    assert(cols == 1 && rows == 1);
+    ScreenFont_Grid(1920, 1080, 1900, 1060, TRUE, 8, 16, &cols, &rows);
+    assert(cols == 199);                                              /* ibmcon's column cap */
+}
+
 int main(void) {
     test_topaz_on_square_pixels_becomes_topaz_pro();
+    test_window_size_sent_to_the_bbs_is_the_text_area();
     printf("screenfont: all assertions passed\n");
     return 0;
 }
