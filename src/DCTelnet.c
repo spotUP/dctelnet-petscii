@@ -1619,7 +1619,7 @@ int main(int argc, char *argv[])
     if (server[0] != '\0')
     {
         if (BeginEntrySession(0, NULL))
-            DeferConnect("", server, tcpPort, 0, "", "");
+            DeferConnect("", server, tcpPort, 0, "", "", "");
         else
             BeginServerConnection(server, tcpPort);
     }
