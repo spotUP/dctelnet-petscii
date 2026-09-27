@@ -100,7 +100,8 @@ struct SiteSettings;
 BOOL BeginEntrySession(ULONG settingsId, const struct SiteSettings *entry);
 void EndEntrySession(void);
 void DeferConnect(const char *name, const char *host, UWORD port, ULONG settingsId,
-                  const char *user, const char *pass);
+                  const char *user, const char *pass, const char *loginMacro);
+void SendLoginMacro(const char *macro);
 extern struct List *scrollbackList;
 extern struct Screen *scr;
 extern struct TextFont *ansiFont;

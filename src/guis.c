@@ -34,7 +34,8 @@ struct BookStruct
     char    username[42];
     char    password[42];
     ULONG   settingsId;     // PROGDIR:Sites/<id>.prefs holds this entry's own settings, 0 = global
-    char    res[78];        // reserved; old versions write it back byte for byte
+    char    comment[64];    // free-text note (was reserved space: old versions keep it)
+    char    res[14];        // reserved; old versions write it back byte for byte
 };
 
 // DCTelnet.Book is a headerless run of 256-byte records: a different size
@@ -730,7 +731,9 @@ add:
     if(ret)
     {
         static struct SiteSettings entrySettings;
-        BOOL hasSettings = LoadEntrySettings(conbook->settingsId, &entrySettings);
+        BOOL hasFile = LoadEntrySettings(conbook->settingsId, &entrySettings);
+        BOOL hasSettings = hasFile && entrySettings.groups != 0;
+        const char *loginMacro = hasFile ? entrySettings.loginMacro : "";
 
         // When the settings for this connect change the display (the entry's own,
         // or the global ones coming back after another entry's session), the
@@ -741,7 +744,7 @@ add:
                               hasSettings ? &entrySettings : NULL))
         {
             DeferConnect(conbook->name, conbook->host, conbook->port, conbook->settingsId,
-                         conbook->username, conbook->password);
+                         conbook->username, conbook->password, loginMacro);
         }
         else
         {
@@ -752,6 +755,7 @@ add:
                 strlcpy(username, conbook->username, sizeof(username));
                 strlcpy(password, conbook->password, sizeof(password));
                 RememberConnectedEntry(conbook->name, conbook->host, conbook->port);
+                SendLoginMacro(loginMacro);
             }
             else
                 EndEntrySession();
@@ -782,7 +786,7 @@ static struct Window         *editProfileWnd;           // "Edit Address Book Pr
 static struct Gadget         *editProfileGList;         // "Edit Address Book Profile" window GList
 static struct Gadget         *editProfileGadgets[editProfile_CNT]; // "Edit Address Book Profile" window gadgets
 #define editProfileWidth 450
-#define editProfileHeight 135
+#define editProfileHeight 167
 
 static UBYTE editProfileGTypes[] = {
     STRING_KIND,
@@ -795,21 +799,25 @@ static UBYTE editProfileGTypes[] = {
     STRING_KIND,
     TEXT_KIND,
     BUTTON_KIND,
-    BUTTON_KIND
+    BUTTON_KIND,
+    STRING_KIND,
+    STRING_KIND
 };
 
 static struct MyNewGadget editProfileNGad[] = {
     120, 5, 317, 13, (UBYTE *)"_Site Name:",
     120, 21, 317, 13, (UBYTE *)"_Address:",
     121, 37, 177, 13, (UBYTE *)"Last Called:",
-    3, 120, 101, 13, (UBYTE *)"_Ok",
-    345, 120, 101, 13, (UBYTE *)"_Cancel",
+    3, 152, 101, 13, (UBYTE *)"_Ok",
+    345, 152, 101, 13, (UBYTE *)"_Cancel",
     365, 37, 72, 13, (UBYTE *)"_Port:",
     120, 53, 317, 13, (UBYTE *)"_Username:",
     120, 68, 317, 13, (UBYTE *)"Pass_word:",
-    120, 84, 317, 13, (UBYTE *)"Settings:",
-    3, 100, 218, 13, (UBYTE *)"Use Cu_rrent Settings",
-    228, 100, 218, 13, (UBYTE *)"Use _Global Settings",
+    120, 116, 317, 13, (UBYTE *)"Settings:",
+    3, 132, 218, 13, (UBYTE *)"Use Cu_rrent Settings",
+    228, 132, 218, 13, (UBYTE *)"Use _Global Settings",
+    120, 84, 317, 13, (UBYTE *)"Co_mment:",
+    120, 100, 317, 13, (UBYTE *)"_Login Macro:",
 };
 
 static ULONG editProfileGTags[] = {
@@ -823,7 +831,9 @@ static ULONG editProfileGTags[] = {
     GTST_String, 0, (GTST_MaxChars), 41, (GT_Underscore), '_', (TAG_DONE),
     GTTX_Text, 0, (GTTX_Border), TRUE, (TAG_DONE),
     (GT_Underscore), '_', (TAG_DONE),
-    (GT_Underscore), '_', (TAG_DONE)
+    (GT_Underscore), '_', (TAG_DONE),
+    GTST_String, 0, (GTST_MaxChars), 63, (GT_Underscore), '_', (TAG_DONE),
+    GTST_String, 0, (GTST_MaxChars), 127, (GT_Underscore), '_', (TAG_DONE)
 };
 
 // Where each gadget's initial value sits in editProfileGTags[] above (the
@@ -836,6 +846,8 @@ static ULONG editProfileGTags[] = {
 #define EP_TAG_USERNAME 33
 #define EP_TAG_PASSWORD 40
 #define EP_TAG_SETTINGS 47
+#define EP_TAG_COMMENT  58
+#define EP_TAG_LOGIN_MACRO 65
 
 // Draw the Edit Address Book Profile window
 static int OpenEditProfileWindow( void )
@@ -942,7 +954,9 @@ static BOOL EditProfile(struct BookStruct *book, struct List *list)
     // truncated or foreign file means the entry connects with global settings.
     memset(&snapshot, 0, sizeof(snapshot));   // no stale macro from another entry
     editProfileGTags[EP_TAG_SETTINGS] = (unsigned long)(LoadEntrySettings(book->settingsId, &snapshot)
-                                         ? "Own (saved with this entry)" : "Global");
+                                         && snapshot.groups ? "Own (saved with this entry)" : "Global");
+    editProfileGTags[EP_TAG_COMMENT] = (unsigned long)book->comment;
+    editProfileGTags[EP_TAG_LOGIN_MACRO] = (unsigned long)snapshot.loginMacro;
 
     // Open the Edit Profile window
     if(OpenEditProfileWindow() == RETURN_OK)
@@ -991,6 +1005,8 @@ static BOOL EditProfile(struct BookStruct *book, struct List *list)
                         case 'W':  vgad = editProfileGadgets[GD_PASSWORD];    break;
                         case 'R':  goto useCurrent;
                         case 'G':  goto useGlobal;
+                        case 'M':  vgad = editProfileGadgets[GD_COMMENT];     break;
+                        case 'L':  vgad = editProfileGadgets[GD_LOGIN_MACRO]; break;
                     }
                     if(vgad) ActivateGadget(vgad, editProfileWnd, 0); // Focus gadget
                     break;
@@ -1044,7 +1060,24 @@ useGlobal:
                     ((struct StringInfo *)editProfileGadgets[GD_PASSWORD]->SpecialInfo)->Buffer,
                     sizeof(book->password));
 
-            if (settingsAction == SETTINGS_USE_CURRENT)
+            strlcpy(book->comment,
+                    ((struct StringInfo *)editProfileGadgets[GD_COMMENT]->SpecialInfo)->Buffer,
+                    sizeof(book->comment));
+
+            // The settings file holds the overridden groups AND the login macro:
+            // it exists while either is there.
+            if (settingsAction == SETTINGS_USE_GLOBAL)
+                snapshot.groups = 0;
+            strlcpy(snapshot.loginMacro,
+                    ((struct StringInfo *)editProfileGadgets[GD_LOGIN_MACRO]->SpecialInfo)->Buffer,
+                    sizeof(snapshot.loginMacro));
+
+            if (!snapshot.groups && !snapshot.loginMacro[0])
+            {
+                DeleteEntrySettings(book->settingsId);
+                book->settingsId = 0;
+            }
+            else
             {
                 ULONG id = book->settingsId ? book->settingsId : NextSettingsId(list);
 
@@ -1052,11 +1085,6 @@ useGlobal:
                     book->settingsId = id;
                 else
                     InfoReq(editProfileWnd, "Could not save the settings to " SITES_DIR ".");
-            }
-            else if (settingsAction == SETTINGS_USE_GLOBAL && book->settingsId)
-            {
-                DeleteEntrySettings(book->settingsId);
-                book->settingsId = 0;
             }
         }
 

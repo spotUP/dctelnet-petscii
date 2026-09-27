@@ -79,4 +79,14 @@ size_t SitePrefs_Encode(const struct SiteSettings *s, UBYTE *buf, size_t max);
 BOOL SitePrefs_Decode(struct SiteSettings *out, const UBYTE *buf, size_t len,
                       const TEXT *defaultFKeys);
 
+/*
+ * Login macro, sent after connecting: \u username, \p password, \r Return,
+ * \d wait one second, \\ a backslash; any other \x goes out as written.
+ * Returns the next segment to send (in out, NOT NUL-terminated, at most max
+ * bytes) and advances *cursor. *wait is TRUE when the segment ended at a \d:
+ * the caller waits a second before asking for the next one.
+ */
+size_t SitePrefs_NextMacroSegment(const char **cursor, const char *user, const char *pass,
+                                  char *out, size_t max, BOOL *wait);
+
 #endif /* SITE_PREFS_H */
