@@ -103,6 +103,7 @@ void DeferConnect(const char *name, const char *host, UWORD port, ULONG settings
                   const char *user, const char *pass, const char *loginMacro);
 void SendLoginMacro(const char *macro);
 BOOL SessionOverridesKeyboard(void);
+void AdoptEntrySession(ULONG settingsId, ULONG groups);
 extern struct List *scrollbackList;
 extern struct Screen *scr;
 extern struct TextFont *ansiFont;

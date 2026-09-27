@@ -24,6 +24,7 @@
 #include "requesters.h"
 #include "utils.h"
 #include "site_prefs.h"
+#include "Xem_wrapper.h"                 // SaveXemOptions()
 
 struct BookStruct
 {
@@ -55,6 +56,12 @@ static BOOL EditProfile(struct BookStruct *book, struct List *list);
 static void EntrySettingsPath(ULONG id, char *path)
 {
     mysprintf(path, SITES_DIR "/%lu.prefs", id);
+}
+
+// An entry's XEM options (Terminal group), in the XEM library's own format.
+void EntryXemOptionsPath(ULONG id, char *path)
+{
+    mysprintf(path, SITES_DIR "/%lu.xem", id);
 }
 
 BOOL LoadEntrySettings(ULONG id, struct SiteSettings *out)
@@ -114,6 +121,8 @@ static void DeleteEntrySettings(ULONG id)
 
     if (!id) return;
     EntrySettingsPath(id, path);
+    DeleteFile(path);
+    EntryXemOptionsPath(id, path);
     DeleteFile(path);
 }
 
@@ -200,6 +209,7 @@ void StampConnectedEntry(void)
 BOOL SaveSettingsToConnectedEntry(void)
 {
     static struct BookStruct record;
+    static struct SiteSettings settings;
     BPTR fh;
     LONG offset;
     ULONG maxId, id = 0;
@@ -215,13 +225,17 @@ BOOL SaveSettingsToConnectedEntry(void)
         if (Read(fh, &record, sizeof(record)) == sizeof(record))
             id = record.settingsId;
         if (!id) id = maxId + 1;
-        static struct SiteSettings settings;
 
         memset(&settings, 0, sizeof(settings));
         LoadEntrySettings(id, &settings);          // keeps the entry's login macro
         CaptureCurrentSettings(&settings);
         if (SaveEntrySettings(id, &settings))
         {
+            char xemPath[40];
+
+            EntryXemOptionsPath(id, xemPath);
+            SaveXemOptions(xemPath);            // no-op when XEM is not in use
+
             Seek(fh, offset, OFFSET_BEGINNING);
             if (Read(fh, &record, sizeof(record)) == sizeof(record) && record.settingsId != id)
             {
@@ -234,13 +248,9 @@ BOOL SaveSettingsToConnectedEntry(void)
     }
     Close(fh);
 
-    if (ok && sessionSettingsId != id)
-    {
-        // The entry now has settings of its own: make this connection an
-        // entry session so later menu changes stay out of the global prefs.
-        globalPrefs = prefs;
-        sessionSettingsId = id;
-    }
+    // The entry now has settings of its own: from here on this connection is
+    // an entry session, so later menu changes stay out of the global prefs.
+    if (ok) AdoptEntrySession(id, settings.groups);
     return ok;
 }
 
@@ -1082,7 +1092,16 @@ useGlobal:
                 ULONG id = book->settingsId ? book->settingsId : NextSettingsId(list);
 
                 if (SaveEntrySettings(id, &snapshot))
+                {
                     book->settingsId = id;
+                    if (settingsAction == SETTINGS_USE_CURRENT && (snapshot.groups & SITE_GROUP_TERMINAL))
+                    {
+                        char xemPath[40];
+
+                        EntryXemOptionsPath(id, xemPath);
+                        SaveXemOptions(xemPath);    // no-op when XEM is not in use
+                    }
+                }
                 else
                     InfoReq(editProfileWnd, "Could not save the settings to " SITES_DIR ".");
             }
