@@ -276,6 +276,8 @@ _LVOGfxMove         EQU -$F0
 _LVORectFill        EQU -$132
 _LVOSetAPen         EQU -$156
 _LVOSetBPen         EQU -$15C
+_LVOGetBitMapAttr   EQU -$3C0   ; V39 (1.5: the depth of RTG bitmaps)
+BMA_DEPTH           EQU 4
 _LVOSetDrMd         EQU -$162
 _LVOScrollRaster    EQU -$18C
 _LVOClipBlit        EQU -$228
@@ -814,12 +816,8 @@ HandlerProc:                            ; was JL_0_2EC
         bclr    #0,(A5)                 ; LNM off (LF = pure linefeed)
         bset    #2,(A5)                 ; scroll at margins on
         bset    #1,(A5)+                ; auto-wrap on
-        movea.l g_Window(A4),A1         ; screen depth decides colour
-        movea.l wd_WScreen(A1),A0       ;   handling:
-        movea.l sc_vpRasInfo(A0),A1
-        movea.l ri_BitMap(A1),A0
-        moveq   #0,D0
-        move.b  bm_Depth(A0),D0
+        bsr.w   ScreenDepth             ; screen depth decides colour
+                                        ;   handling (D0.l):
         subq.l  #1,D0
         beq.b   .depth1
         subq.l  #1,D0
@@ -1061,6 +1059,31 @@ CheckResize:
         addq.w  #4,A7
 .same:
         movem.l (A7)+,D2-D3/A5
+        rts
+
+;---------------------------------------------------------------------
+; ScreenDepth (1.5) -- D0.l = depth of the window's screen. On graphics V39+
+; GetBitMapAttr(BMA_DEPTH): an RTG bitmap's bm_Depth is not its depth (a
+; 24-bit Picasso96 screen says 6 -- measured with rtgprobe), and 1.4 read it.
+; bm_Depth below V39. Changes D0/D1/A0/A1.
+;---------------------------------------------------------------------
+ScreenDepth:
+        move.l  A6,-(A7)
+        movea.l g_Window(A4),A1
+        movea.l wd_WScreen(A1),A0
+        movea.l sc_vpRasInfo(A0),A1
+        movea.l ri_BitMap(A1),A0
+        movea.l g_GfxBase(A4),A6
+        cmpi.w  #39,LIB_VERSION(A6)
+        bcs.b   .old
+        moveq   #BMA_DEPTH,D1
+        jsr     _LVOGetBitMapAttr(A6)   ; (a0 = bitmap, d1 = attribute)
+        bra.b   .done
+.old:
+        moveq   #0,D0
+        move.b  bm_Depth(A0),D0
+.done:
+        movea.l (A7)+,A6
         rts
 
 ;---------------------------------------------------------------------
@@ -1624,12 +1647,10 @@ Csi_m_SetGraphics:                      ; was AJL_0_858
         beq.b   .bgDefault              ; 49: default background = 0
         tst.w   con_PenMapOn(A5)
         bne.b   .bgOk                   ; 1.5: the table has all 16 pens
-        movea.l g_Window(A4),A1         ; validate against screen depth
-        movea.l wd_WScreen(A1),A0
-        movea.l sc_vpRasInfo(A0),A1
-        movea.l ri_BitMap(A1),A0
-        moveq   #0,D1
-        move.b  bm_Depth(A0),D1
+        move.l  D0,-(A7)                ; validate against screen depth
+        bsr.w   ScreenDepth
+        move.l  D0,D1                   ; D1 = depth
+        move.l  (A7)+,D0                ; D0 = pen again
         cmpi.b  #4,D1
         bhi.b   .bgOk                   ; 1.5 FIXED: 32+ colours have all 16
                                         ;   (bset is mod 32: depth 32 = 1 pen)
