@@ -25,6 +25,7 @@
 #include "utils.h"
 #include "site_prefs.h"
 #include "Xem_wrapper.h"                 // SaveXemOptions()
+#include "listsel.h"
 
 struct BookStruct
 {
@@ -684,13 +685,21 @@ delete:
                             //mysprintf(buf, "Delete \042%s\042?", worknode->ln_Name);
                             //if(rtEZRequestA(buf, "Delete|Cancel", NULL, NULL, (struct TagItem *)&reqtoolsTags))
                             {
+                                struct Node *n;
+                                UWORD remaining = 0;
+
+                                // GadTools must not see the list while it changes.
+                                GT_SetGadgetAttrs(aBookGadgets[GD_LIST], aBookWnd, NULL,
+                                                  GTLV_Labels, ~0UL, TAG_DONE);
                                 Remove(worknode);
                                 DeleteEntrySettings(((struct BookStruct *)worknode->ln_Name)->settingsId);
                                 FreeMem(worknode->ln_Name, sizeof(struct BookStruct));
                                 FreeMem(worknode, sizeof(struct Node));
-                                lastcode--;
-                                // BF: Why this test? lastcode is UWORD, how could it be negative?
-                                //if(lastcode < 0) lastcode = 0;
+                                for (n = listviewlist->lh_Head; n->ln_Succ; n = n->ln_Succ)
+                                    remaining++;
+                                // lastcode-- turned row 0 into 65535 (UWORD): nothing
+                                // selected, and the next Delete did nothing.
+                                lastcode = ListSel_AfterDelete(lastcode, remaining);
                                 GT_SetGadgetAttrs(aBookGadgets[GD_LIST],aBookWnd,0,GTLV_Labels,listviewlist,GTLV_Selected,lastcode,TAG_DONE);
                                 save = TRUE;
                             }
