@@ -1234,6 +1234,7 @@ static void RecolourTerminal(ULONG from, ULONG to)
 enum { PE_PALETTE, PE_NAME, PE_RED, PE_GREEN, PE_BLUE, PE_USE, PE_DEFAULT, PE_CANCEL, PE_COUNT };
 
 static UBYTE editPens[16];          // pen of each ANSI colour in the editor
+static BOOL  editPenOwned[16];      // borrowed for the preview: given back on close
 static BOOL  editLive;              // SetRGB32/SetRGB4 on editPens shows the colour
 
 static void ShowEditedColour(int ansi, ULONG rgb)
@@ -1305,13 +1306,15 @@ BOOL EditPalette(struct PrefsStruct *target)
             LONG pen = ObtainPen(scr->ViewPort.ColorMap, (ULONG)-1, ((c >> 16) & 0xFF) * 0x01010101UL,
                                  ((c >> 8) & 0xFF) * 0x01010101UL, (c & 0xFF) * 0x01010101UL,
                                  PEN_EXCLUSIVE);
+            editPenOwned[i] = pen >= 0;
             if (pen >= 0) editPens[i] = (UBYTE)pen;
             else
             {
-                // No free pen: the nearest shared one, which cannot be recoloured.
-                editPens[i] = (UBYTE)ObtainBestPen(scr->ViewPort.ColorMap,
+                // No free pen: the nearest colour already there, which cannot
+                // be recoloured and is not ours to give back.
+                editPens[i] = (UBYTE)FindColor(scr->ViewPort.ColorMap,
                                   ((c >> 16) & 0xFF) * 0x01010101UL, ((c >> 8) & 0xFF) * 0x01010101UL,
-                                  (c & 0xFF) * 0x01010101UL, TAG_DONE);
+                                  (c & 0xFF) * 0x01010101UL, -1);
                 editLive = FALSE;
             }
         }
@@ -1461,7 +1464,7 @@ BOOL EditPalette(struct PrefsStruct *target)
     // Back to the live colours: the borrowed pens go back, and on the own
     // screen the terminal's pens show the settings in use.
     for (i = 0; i < 16; i++)
-        if (isRunningOnWB && v39)
+        if (isRunningOnWB && v39 && editPenOwned[i])
             ReleasePen(scr->ViewPort.ColorMap, editPens[i]);
     if (!isRunningOnWB)
         LoadAnsiPalette(&prefs);
