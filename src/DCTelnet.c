@@ -621,6 +621,8 @@ static void DisConnect(char remote, char quiet)
         {
             WORD optionsMenuNumber = GetMenuNumberFromID(MENU_OPTIONS);
 
+            ConWrite("\x1b[20l", 5);          // newline mode off: BBSes send CR LF
+
             if (optionsMenuNumber >= 0)
                 OnMenu(win, FULLMENUNUM(optionsMenuNumber, NOITEM, NOSUB));
 
@@ -1703,6 +1705,12 @@ static void StartFinger(char *query)
 
         mysprintf(buf, "/W %s\r\n", query);
         send(tcpSocket, buf, strlen(buf), 0);
+
+        // Finger servers end lines with a bare LF (Unix), which on a
+        // terminal only moves down: the reply came out as a staircase.
+        // Newline mode (LNM, CSI 20 h) makes LF return to column 1 too,
+        // for the reply only.
+        ConWrite("\x1b[20h", 5);
 
         if (optionsMenuNumber >= 0)
             OffMenu(win, FULLMENUNUM(optionsMenuNumber, NOITEM, NOSUB));
