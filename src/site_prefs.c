@@ -29,9 +29,46 @@ static void replace_keeping_geometry(struct PrefsStruct *live, const struct Pref
     copy_geometry(live, &geometry);
 }
 
-void SitePrefs_ApplyEntry(struct PrefsStruct *live, const struct PrefsStruct *entry)
+#define SCREEN_GROUP_FLAGS    (FLAG_USE_WORKBENCH)
+#define TERMINAL_GROUP_FLAGS  (FLAG_PETSCII_MODE | FLAG_USE_XEM_LIBRARY | FLAG_RAW_CONNECTION | FLAG_LOCAL_ECHO)
+#define KEYBOARD_GROUP_FLAGS  (FLAG_BS_DEL_SWAP | FLAG_RETURN_CRLF)
+
+static void copy_flags(struct PrefsStruct *to, const struct PrefsStruct *from, ULONG mask)
 {
-    replace_keeping_geometry(live, entry);
+    to->flags = (to->flags & ~mask) | (from->flags & mask);
+}
+
+void SitePrefs_ApplyEntry(struct PrefsStruct *live, const struct PrefsStruct *global,
+                          const struct SiteSettings *entry)
+{
+    struct PrefsStruct result = *global;
+    const struct PrefsStruct *e = &entry->prefs;
+
+    if (entry->groups & SITE_GROUP_SCREEN)
+    {
+        result.DisplayID     = e->DisplayID;
+        result.DisplayWidth  = e->DisplayWidth;
+        result.DisplayHeight = e->DisplayHeight;
+        result.DisplayDepth  = e->DisplayDepth;
+        result.fontsize      = e->fontsize;
+        memcpy(result.fontname, e->fontname, sizeof(result.fontname));
+        memcpy(result.color, e->color, sizeof(result.color));
+        copy_flags(&result, e, SCREEN_GROUP_FLAGS);
+    }
+    if (entry->groups & SITE_GROUP_TERMINAL)
+    {
+        memcpy(result.displaydriver, e->displaydriver, sizeof(result.displaydriver));
+        memcpy(result.displayidstr, e->displayidstr, sizeof(result.displayidstr));
+        copy_flags(&result, e, TERMINAL_GROUP_FLAGS);
+    }
+    if (entry->groups & SITE_GROUP_KEYBOARD)
+        copy_flags(&result, e, KEYBOARD_GROUP_FLAGS);
+    if (entry->groups & SITE_GROUP_TRANSFER)
+    {
+        memcpy(result.xferlibrary, e->xferlibrary, sizeof(result.xferlibrary));
+        memcpy(result.xferinit, e->xferinit, sizeof(result.xferinit));
+    }
+    replace_keeping_geometry(live, &result);
 }
 
 void SitePrefs_Restore(struct PrefsStruct *live, const struct PrefsStruct *global)
@@ -71,21 +108,44 @@ BOOL SitePrefs_DisplayDiffers(const struct PrefsStruct *a, const struct PrefsStr
     return *reopenScreen || windows;
 }
 
-static const UBYTE MAGIC[SITE_PREFS_MAGIC_SIZE] = { 'D', 'C', 'S', '1' };
+static const UBYTE MAGIC_V1[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '1' };
+static const UBYTE MAGIC_V2[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '2' };
 
-size_t SitePrefs_Encode(const struct PrefsStruct *p, UBYTE *buf, size_t max)
+size_t SitePrefs_Encode(const struct SiteSettings *s, UBYTE *buf, size_t max)
 {
-    if (max < SITE_PREFS_FILE_SIZE)
+    UBYTE *p = buf;
+
+    if (max < SITE_FILE_SIZE_MAX)
         return 0;
-    memcpy(buf, MAGIC, SITE_PREFS_MAGIC_SIZE);
-    memcpy(buf + SITE_PREFS_MAGIC_SIZE, p, sizeof(*p));
-    return SITE_PREFS_FILE_SIZE;
+    memcpy(p, MAGIC_V2, SITE_MAGIC_SIZE);            p += SITE_MAGIC_SIZE;
+    memcpy(p, &s->groups, sizeof(s->groups));        p += sizeof(s->groups);
+    memcpy(p, &s->prefs, sizeof(s->prefs));          p += sizeof(s->prefs);
+    memcpy(p, s->fKeys, sizeof(s->fKeys));           p += sizeof(s->fKeys);
+    memcpy(p, s->loginMacro, sizeof(s->loginMacro)); p += sizeof(s->loginMacro);
+    return (size_t)(p - buf);
 }
 
-BOOL SitePrefs_Decode(struct PrefsStruct *out, const UBYTE *buf, size_t len)
+BOOL SitePrefs_Decode(struct SiteSettings *out, const UBYTE *buf, size_t len,
+                      const TEXT *defaultFKeys)
 {
-    if (len != SITE_PREFS_FILE_SIZE || memcmp(buf, MAGIC, SITE_PREFS_MAGIC_SIZE) != 0)
-        return FALSE;
-    memcpy(out, buf + SITE_PREFS_MAGIC_SIZE, sizeof(*out));
-    return TRUE;
+    const UBYTE *p = buf + SITE_MAGIC_SIZE;
+
+    if (len == SITE_FILE_SIZE_MAX && memcmp(buf, MAGIC_V2, SITE_MAGIC_SIZE) == 0)
+    {
+        memcpy(&out->groups, p, sizeof(out->groups));        p += sizeof(out->groups);
+        memcpy(&out->prefs, p, sizeof(out->prefs));          p += sizeof(out->prefs);
+        memcpy(out->fKeys, p, sizeof(out->fKeys));           p += sizeof(out->fKeys);
+        memcpy(out->loginMacro, p, sizeof(out->loginMacro));
+        out->loginMacro[sizeof(out->loginMacro) - 1] = 0;
+        return TRUE;
+    }
+    if (len == SITE_FILE_SIZE_V1 && memcmp(buf, MAGIC_V1, SITE_MAGIC_SIZE) == 0)
+    {
+        out->groups = SITE_GROUPS_ALL;
+        memcpy(&out->prefs, p, sizeof(out->prefs));
+        memcpy(out->fKeys, defaultFKeys, sizeof(out->fKeys));
+        out->loginMacro[0] = 0;
+        return TRUE;
+    }
+    return FALSE;
 }

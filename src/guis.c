@@ -56,9 +56,9 @@ static void EntrySettingsPath(ULONG id, char *path)
     mysprintf(path, SITES_DIR "/%lu.prefs", id);
 }
 
-BOOL LoadEntrySettings(ULONG id, struct PrefsStruct *out)
+BOOL LoadEntrySettings(ULONG id, struct SiteSettings *out)
 {
-    static UBYTE fileBuf[SITE_PREFS_FILE_SIZE + 1];   // +1: a longer file is not ours
+    static UBYTE fileBuf[SITE_FILE_SIZE_MAX + 1];   // +1: a longer file is not ours
     char path[40];
     BPTR fh;
     LONG len;
@@ -69,12 +69,13 @@ BOOL LoadEntrySettings(ULONG id, struct PrefsStruct *out)
     if (!fh) return FALSE;
     len = Read(fh, fileBuf, sizeof(fileBuf));
     Close(fh);
-    return len > 0 && SitePrefs_Decode(out, fileBuf, (size_t)len);
+    // A DCTelnet 'DCS1' snapshot has no function keys: it gets the global ones.
+    return len > 0 && SitePrefs_Decode(out, fileBuf, (size_t)len, fKeys);
 }
 
-BOOL SaveEntrySettings(ULONG id, const struct PrefsStruct *settings)
+BOOL SaveEntrySettings(ULONG id, const struct SiteSettings *settings)
 {
-    static UBYTE fileBuf[SITE_PREFS_FILE_SIZE];
+    static UBYTE fileBuf[SITE_FILE_SIZE_MAX];
     char path[40];
     BPTR fh, lock;
     size_t len;
@@ -95,6 +96,15 @@ BOOL SaveEntrySettings(ULONG id, const struct PrefsStruct *settings)
         Close(fh);
     }
     return ok;
+}
+
+// The settings in use right now, all groups overridden, into an entry's
+// settings; the entry's own fields (login macro) are left alone.
+static void CaptureCurrentSettings(struct SiteSettings *s)
+{
+    s->groups = SITE_GROUPS_ALL;
+    s->prefs = prefs;
+    memcpy(s->fKeys, fKeys, sizeof(s->fKeys));
 }
 
 static void DeleteEntrySettings(ULONG id)
@@ -204,7 +214,12 @@ BOOL SaveSettingsToConnectedEntry(void)
         if (Read(fh, &record, sizeof(record)) == sizeof(record))
             id = record.settingsId;
         if (!id) id = maxId + 1;
-        if (SaveEntrySettings(id, &prefs))
+        static struct SiteSettings settings;
+
+        memset(&settings, 0, sizeof(settings));
+        LoadEntrySettings(id, &settings);          // keeps the entry's login macro
+        CaptureCurrentSettings(&settings);
+        if (SaveEntrySettings(id, &settings))
         {
             Seek(fh, offset, OFFSET_BEGINNING);
             if (Read(fh, &record, sizeof(record)) == sizeof(record) && record.settingsId != id)
@@ -714,7 +729,7 @@ add:
     // Initiate connection if requested
     if(ret)
     {
-        static struct PrefsStruct entrySettings;
+        static struct SiteSettings entrySettings;
         BOOL hasSettings = LoadEntrySettings(conbook->settingsId, &entrySettings);
 
         // When the settings for this connect change the display (the entry's own,
@@ -907,7 +922,7 @@ static BOOL EditProfile(struct BookStruct *book, struct List *list)
     char strLastTime[2 * LEN_DATSTRING];
     // The settings buttons only stage a change; Ok applies it, Cancel drops it.
     enum { SETTINGS_KEEP, SETTINGS_USE_CURRENT, SETTINGS_USE_GLOBAL } settingsAction = SETTINGS_KEEP;
-    static struct PrefsStruct snapshot;
+    static struct SiteSettings snapshot;
     struct IntuiMessage *message;
     struct Gadget *gad;
     ULONG class;
@@ -925,6 +940,7 @@ static BOOL EditProfile(struct BookStruct *book, struct List *list)
     editProfileGTags[EP_TAG_PASSWORD] = (unsigned long)book->password;
     // "Own" only when the entry's settings file really loads: a missing,
     // truncated or foreign file means the entry connects with global settings.
+    memset(&snapshot, 0, sizeof(snapshot));   // no stale macro from another entry
     editProfileGTags[EP_TAG_SETTINGS] = (unsigned long)(LoadEntrySettings(book->settingsId, &snapshot)
                                          ? "Own (saved with this entry)" : "Global");
 
@@ -992,7 +1008,9 @@ static BOOL EditProfile(struct BookStruct *book, struct List *list)
                         break;
                     case GD_USE_CURRENT:
 useCurrent:
-                        snapshot = prefs;   // the settings in use right now
+                        // The settings in use right now, every group; the entry's
+                        // login macro (loaded above) is kept.
+                        CaptureCurrentSettings(&snapshot);
                         settingsAction = SETTINGS_USE_CURRENT;
                         GT_SetGadgetAttrs(editProfileGadgets[GD_SETTINGS], editProfileWnd, NULL,
                                           GTTX_Text, "Own: current settings (on Ok)", TAG_DONE);
