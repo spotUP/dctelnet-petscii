@@ -199,6 +199,11 @@ static BOOL connectionDisplay = FALSE;   // a connection is being prepared or is
 // (prefs.win_*) is only what Snapshot Windows stored.
 static struct IBox wbWindowBox;
 static BOOL wbWindowBoxValid = FALSE;
+// The height of the screen title bar's text: the LEDs are drawn inside the
+// bar as the screen made it (BarHeight is its height minus one, text plus
+// two border lines), not from prefs.fontsize, which is only the setting.
+#define BAR_TEXT_HEIGHT (scr->BarHeight - 2)
+
 static const char *consoleFrom = "the system";   // where ibmcon.device came from
 static char fontMissing[48];    // the font setting that could not be opened ("" = none)
 static BOOL displayIsPetscii = FALSE;    // the display was opened for PETSCII
@@ -1563,12 +1568,12 @@ void LEDs(void)
     // Draw connection activity indicator when Title bar AND LEDs are enabled AND NOT iconified
     if((prefs.flags & (FLAG_HIDE_TITLEBAR | FLAG_HIDE_LEDS)) == 0  &&  !isAppIconified)
     {
-        EraseRect(&scr->RastPort, scr->Width-72, 2, scr->Width-60, prefs.fontsize-1);
-        EraseRect(&scr->RastPort, scr->Width-86, 2, scr->Width-74, prefs.fontsize-1);
+        EraseRect(&scr->RastPort, scr->Width-72, 2, scr->Width-60, BAR_TEXT_HEIGHT-1);
+        EraseRect(&scr->RastPort, scr->Width-86, 2, scr->Width-74, BAR_TEXT_HEIGHT-1);
         if(isConnected)
         {
             SetAPen(&scr->RastPort, LegacyPen(15));
-            RectFill(&scr->RastPort, scr->Width-84, 3, scr->Width-76, prefs.fontsize-2);
+            RectFill(&scr->RastPort, scr->Width-84, 3, scr->Width-76, BAR_TEXT_HEIGHT-2);
         }
     }
 }
@@ -2118,11 +2123,11 @@ int main(int argc, char *argv[])
                     if((prefs.flags & (FLAG_HIDE_TITLEBAR | FLAG_HIDE_LEDS)) == 0)
                     {
                         SetAPen(&scr->RastPort, LegacyPen(10));
-                        RectFill(&scr->RastPort, scr->Width-70, 3, scr->Width-62, prefs.fontsize-2);
+                        RectFill(&scr->RastPort, scr->Width-70, 3, scr->Width-62, BAR_TEXT_HEIGHT-2);
                     }
                     Receive();
                     if((prefs.flags & (FLAG_HIDE_TITLEBAR | FLAG_HIDE_LEDS)) == 0)
-                        EraseRect(&scr->RastPort, scr->Width-72, 2, scr->Width-60, prefs.fontsize-1);
+                        EraseRect(&scr->RastPort, scr->Width-72, 2, scr->Width-60, BAR_TEXT_HEIGHT-1);
                 }
 
             } else {  // not connected
@@ -2889,7 +2894,7 @@ static void GetWindowMsg(struct Window *wwin)
                             if(!(prefs.flags & FLAG_HIDE_TITLEBAR))
                             {
                                 SetAPen(&scr->RastPort, drawInfo->dri_Pens[BARBLOCKPEN]);
-                                RectFill(&scr->RastPort, scr->Width-86, 2, scr->Width-60, prefs.fontsize-1);
+                                RectFill(&scr->RastPort, scr->Width-86, 2, scr->Width-60, BAR_TEXT_HEIGHT-1);
                             }
                         }
                         else
@@ -3159,7 +3164,7 @@ up:                if(lasttop > 0) lasttop--;
                 break;
 
             case GAD_DOWN:
-down:                if(lasttop+((scrollbackWin->Height - (prefs.fontsize + scr->WBorTop + 2)) / prefs.fontsize) < nScrollbackLines) lasttop++;
+down:                if(lasttop+((scrollbackWin->Height - (scr->Font->ta_YSize + scr->WBorTop + 2)) / scr->Font->ta_YSize) < nScrollbackLines) lasttop++;
                 break;
             }
             SetGadgetAttrs((struct Gadget *)Scroller, scrollbackWin, NULL,
@@ -3179,7 +3184,7 @@ down:                if(lasttop+((scrollbackWin->Height - (prefs.fontsize + scr-
         RefreshWindowFrame(scrollbackWin);
         RefreshListView(lasttop);
         SetGadgetAttrs((struct Gadget *)Scroller, scrollbackWin, NULL,
-            PGA_Visible,    (scrollbackWin->Height - (prefs.fontsize + scr->WBorTop + 2)) / prefs.fontsize,
+            PGA_Visible,    (scrollbackWin->Height - (scr->Font->ta_YSize + scr->WBorTop + 2)) / scr->Font->ta_YSize,
         TAG_END);
     }
     if(close) CloseScrollBack();
@@ -3289,7 +3294,7 @@ static UWORD EstablishTCPConnection(char *servername, UWORD port)
     if((prefs.flags & (FLAG_HIDE_TITLEBAR | FLAG_HIDE_LEDS)) == 0)
     {
         SetAPen(&scr->RastPort, LegacyPen(11));
-        RectFill(&scr->RastPort, scr->Width-84, 3, scr->Width-76, prefs.fontsize-2);
+        RectFill(&scr->RastPort, scr->Width-84, 3, scr->Width-76, BAR_TEXT_HEIGHT-2);
     }
 
     DisConnect(FALSE, FALSE);
@@ -3921,8 +3926,11 @@ void OpenAppWindow(void)
             screenToBackGadget.LeftEdge = scr->Width - 20;
             screenToBackGadget.GadgetID = GADGET_SCREEN_TO_BACK;
         } else {
-            top = prefs.fontsize + 3;
-            height = scr->Height - (prefs.fontsize + 3);
+            // Below the title bar as the screen draws it: prefs.fontsize is the
+            // setting, not the opened font (Topaz Pro 16 for topaz 8), and the
+            // first rows went under the bar.
+            top = scr->BarHeight + 1;
+            height = scr->Height - top;
             backgad = 0;
         }
 
@@ -3949,7 +3957,7 @@ void OpenAppWindow(void)
 
         if(prefs.flags & FLAG_PACKET_WINDOW)    // Packet
         {
-            height -= (prefs.fontsize + 2);
+            height -= (scr->Font->ta_YSize + 2);
             strInfo.Buffer = strBuffer;
             strInfo.MaxChars = BUFSIZE;
             strGad.TopEdge = 2;
@@ -3957,10 +3965,10 @@ void OpenAppWindow(void)
             strGad.GadgetType = GTYP_STRGADGET;
             strGad.SpecialInfo = &strInfo;
             strGad.Width = scr->Width;
-            strGad.Height = prefs.fontsize;
+            strGad.Height = scr->Font->ta_YSize;
 
             newWin.TopEdge = top+height;
-            newWin.Height = prefs.fontsize+2,
+            newWin.Height = scr->Font->ta_YSize + 2,
             newWin.FirstGadget = &strGad;
             newWin.IDCMPFlags =    IDCMP_MENUPICK |
                         IDCMP_GADGETUP;

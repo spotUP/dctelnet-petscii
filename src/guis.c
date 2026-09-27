@@ -1616,7 +1616,7 @@ void OpenScrollBack(UWORD sel)
                     PGA_NewLook,    TRUE,
                     PGA_Borderless,    TRUE,
                     PGA_Top,    sel,
-                    PGA_Visible,    (prefs.sb_height - (prefs.fontsize + scr->WBorTop + 2)) / prefs.fontsize,
+                    PGA_Visible,    (prefs.sb_height - (scr->Font->ta_YSize + scr->WBorTop + 2)) / scr->Font->ta_YSize,
                     PGA_Total,    nScrollbackLines,
                 TAG_DONE))
                 {
@@ -2061,7 +2061,7 @@ void OpenToolBarWindow(char setmenus)
             if(prefs.flags & FLAG_HIDE_TITLEBAR)
                 newWin.TopEdge = 0;
             else
-                newWin.TopEdge = prefs.fontsize + 3;
+                newWin.TopEdge = scr->BarHeight + 1;    // below the title bar as drawn
 
             newWin.Width = scr->Width;
             newWin.Height = maxheight + scr->RastPort.Font->tf_YSize + 4;
