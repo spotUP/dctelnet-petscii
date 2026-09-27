@@ -1261,7 +1261,10 @@ cont:
                 }
                 break;
             default:
-norm:                buf[j] = str[i];
+norm:                // Typed text in PETSCII Mode goes out case-swapped (petscii_keymap);
+                // a macro's text is typed text too. Escapes (\r, \123) stay raw.
+                buf[j] = (prefs.flags & FLAG_PETSCII_MODE)
+                         ? (char)petscii_translate_key((unsigned char)str[i], 0) : str[i];
                 j++;
         }
         i++;
@@ -2343,26 +2346,22 @@ static void GetWindowMsg(struct Window *wwin)
                             if(key_csi)
                             {
                                 key_csi = FALSE;
-                                if (conbuf[i] >= '0' && conbuf[i] <= '9' && !(prefs.flags & FLAG_PETSCII_MODE))
+                                /* The Amiga console reports F1-F10 as CSI <digit> ~ with
+                                 * digit 0-9 (F1 = 0). A key with a macro sends the macro,
+                                 * PETSCII Mode or not. In PETSCII Mode a key WITHOUT a
+                                 * macro sends the C64 function-key byte instead (F1-F8
+                                 * only; F9/F10 have no C64 counterpart). */
+                                if (conbuf[i] >= '0' && conbuf[i] <= '9'
+                                    && fKeys[(conbuf[i] - '0') * F_KEY_SIZE] != 0)
                                 {
                                     key_macro = TRUE;
                                     SendMacro(&fKeys[(conbuf[i] - '0') * F_KEY_SIZE]);
                                 }
-                                /* PETSCII mode: F1-F8 send the real PETSCII
-                                 * function-key bytes instead of triggering a
-                                 * user macro -- Amiga's console CSI encodes
-                                 * F1-F10 as ESC [ <digit> per the digit branch
-                                 * above (0-9); only 1-8 have a PETSCII
-                                 * counterpart (F9/F10/F0 have none). */
                                 else if ((prefs.flags & FLAG_PETSCII_MODE)
-                                         && conbuf[i] >= '1' && conbuf[i] <= '8')
+                                         && petscii_fkey_from_console_digit(conbuf[i]) >= 0)
                                 {
-                                    static const int fkeys[8] = {
-                                        PETSCII_KEY_F1, PETSCII_KEY_F2, PETSCII_KEY_F3, PETSCII_KEY_F4,
-                                        PETSCII_KEY_F5, PETSCII_KEY_F6, PETSCII_KEY_F7, PETSCII_KEY_F8
-                                    };
                                     key_macro = TRUE;
-                                    OutKey((unsigned char)petscii_translate_key(fkeys[conbuf[i] - '1'], 1));
+                                    OutKey((unsigned char)petscii_fkey_from_console_digit(conbuf[i]));
                                 }
 
                                 if (prefs.flags & FLAG_PETSCII_MODE)
