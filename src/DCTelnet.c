@@ -1697,6 +1697,7 @@ int main(int argc, char *argv[])
 
 
     if (! LoadPrefs()) goto clean_exit;
+    Palette_EnsureAnsi(&prefs);     // older prefs files: palette from the RGB4 colours
 
     scrollbackList = AllocMem(sizeof(struct List), MEMF_CLEAR|MEMF_PUBLIC);
     if(!scrollbackList) goto clean_exit;

@@ -1,4 +1,5 @@
 /* src/site_prefs.c -- per-Address-Book-entry settings (issue #10). */
+#include <stddef.h>
 #include "site_prefs.h"
 
 /* Flags whose change needs the screen reopened (OpenAppScreen reads them).
@@ -55,6 +56,8 @@ void SitePrefs_ApplyEntry(struct PrefsStruct *live, const struct PrefsStruct *gl
         result.fontsize      = e->fontsize;
         memcpy(result.fontname, e->fontname, sizeof(result.fontname));
         memcpy(result.color, e->color, sizeof(result.color));
+        result.ansiMagic = e->ansiMagic;
+        memcpy(result.ansiRGB, e->ansiRGB, sizeof(result.ansiRGB));
         copy_flags(&result, e, SCREEN_GROUP_FLAGS);
     }
     if (entry->groups & SITE_GROUP_TERMINAL)
@@ -105,13 +108,18 @@ BOOL SitePrefs_DisplayDiffers(const struct PrefsStruct *a, const struct PrefsStr
 
     windows = ((a->flags ^ b->flags) & WINDOW_FLAGS) != 0
            || strcmp(a->displaydriver, b->displaydriver) != 0
-           || memcmp(a->color, b->color, sizeof(a->color)) != 0;
+           || memcmp(a->color, b->color, sizeof(a->color)) != 0
+           || memcmp(a->ansiRGB, b->ansiRGB, sizeof(a->ansiRGB)) != 0;
 
     return *reopenScreen || windows;
 }
 
 static const UBYTE MAGIC_V1[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '1' };
 static const UBYTE MAGIC_V2[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '2' };
+static const UBYTE MAGIC_V3[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '3' };
+
+/* The 376 bytes every DCTelnet before the ANSI palette block wrote. */
+typedef char PrefsV1Layout[offsetof(struct PrefsStruct, ansiMagic) == PREFS_V1_SIZE ? 1 : -1];
 
 size_t SitePrefs_Encode(const struct SiteSettings *s, UBYTE *buf, size_t max)
 {
@@ -119,7 +127,7 @@ size_t SitePrefs_Encode(const struct SiteSettings *s, UBYTE *buf, size_t max)
 
     if (max < SITE_FILE_SIZE_MAX)
         return 0;
-    memcpy(p, MAGIC_V2, SITE_MAGIC_SIZE);            p += SITE_MAGIC_SIZE;
+    memcpy(p, MAGIC_V3, SITE_MAGIC_SIZE);            p += SITE_MAGIC_SIZE;
     memcpy(p, &s->groups, sizeof(s->groups));        p += sizeof(s->groups);
     memcpy(p, &s->prefs, sizeof(s->prefs));          p += sizeof(s->prefs);
     memcpy(p, s->fKeys, sizeof(s->fKeys));           p += sizeof(s->fKeys);
@@ -132,24 +140,33 @@ BOOL SitePrefs_Decode(struct SiteSettings *out, const UBYTE *buf, size_t len,
 {
     const UBYTE *p = buf + SITE_MAGIC_SIZE;
 
-    if (len == SITE_FILE_SIZE_MAX && memcmp(buf, MAGIC_V2, SITE_MAGIC_SIZE) == 0)
+    size_t prefsSize;
+
+    if (len == SITE_FILE_SIZE_MAX && memcmp(buf, MAGIC_V3, SITE_MAGIC_SIZE) == 0)
+        prefsSize = sizeof(out->prefs);
+    else if (len == SITE_FILE_SIZE_V2 && memcmp(buf, MAGIC_V2, SITE_MAGIC_SIZE) == 0)
+        prefsSize = PREFS_V1_SIZE;
+    else if (len == SITE_FILE_SIZE_V1 && memcmp(buf, MAGIC_V1, SITE_MAGIC_SIZE) == 0)
     {
-        memcpy(&out->groups, p, sizeof(out->groups));        p += sizeof(out->groups);
-        memcpy(&out->prefs, p, sizeof(out->prefs));          p += sizeof(out->prefs);
-        memcpy(out->fKeys, p, sizeof(out->fKeys));           p += sizeof(out->fKeys);
-        memcpy(out->loginMacro, p, sizeof(out->loginMacro));
-        out->loginMacro[sizeof(out->loginMacro) - 1] = 0;
-        return TRUE;
-    }
-    if (len == SITE_FILE_SIZE_V1 && memcmp(buf, MAGIC_V1, SITE_MAGIC_SIZE) == 0)
-    {
+        memset(&out->prefs, 0, sizeof(out->prefs));
+        memcpy(&out->prefs, p, PREFS_V1_SIZE);
+        Palette_EnsureAnsi(&out->prefs);
         out->groups = SITE_GROUPS_ALL;
-        memcpy(&out->prefs, p, sizeof(out->prefs));
         memcpy(out->fKeys, defaultFKeys, sizeof(out->fKeys));
         out->loginMacro[0] = 0;
         return TRUE;
     }
-    return FALSE;
+    else
+        return FALSE;
+
+    memcpy(&out->groups, p, sizeof(out->groups));        p += sizeof(out->groups);
+    memset(&out->prefs, 0, sizeof(out->prefs));
+    memcpy(&out->prefs, p, prefsSize);                   p += prefsSize;
+    Palette_EnsureAnsi(&out->prefs);
+    memcpy(out->fKeys, p, sizeof(out->fKeys));           p += sizeof(out->fKeys);
+    memcpy(out->loginMacro, p, sizeof(out->loginMacro));
+    out->loginMacro[sizeof(out->loginMacro) - 1] = 0;
+    return TRUE;
 }
 
 static size_t append_str(char *out, size_t len, size_t max, const char *str)

@@ -13,6 +13,7 @@
 #define SITE_PREFS_H
 
 #include "prefs.h"
+#include "palette.h"
 
 /*
  * An entry overrides settings by GROUP (Term 4.x style): an overridden group's
@@ -63,11 +64,15 @@ BOOL SitePrefs_DisplayDiffers(const struct PrefsStruct *a, const struct PrefsStr
                               BOOL *reopenScreen);
 
 /* An entry's settings file, PROGDIR:Sites/<id>.prefs:
- *   'DCS2', ULONG groups, PrefsStruct, fKeys, loginMacro       (written)
- *   'DCS1', PrefsStruct -- the first per-entry build's snapshot (read only)
+ *   'DCS3', ULONG groups, PrefsStruct, fKeys, loginMacro       (written)
+ *   'DCS2', the same with the 376-byte PrefsStruct before the ANSI palette
+ *   'DCS1', 376-byte PrefsStruct -- the first per-entry build's snapshot
+ * Older files load with their palette converted from the RGB4 colours.
  */
 #define SITE_MAGIC_SIZE    4
-#define SITE_FILE_SIZE_V1  (SITE_MAGIC_SIZE + sizeof(struct PrefsStruct))
+#define SITE_FILE_SIZE_V1  (SITE_MAGIC_SIZE + PREFS_V1_SIZE)
+#define SITE_FILE_SIZE_V2  (SITE_MAGIC_SIZE + sizeof(ULONG) + PREFS_V1_SIZE \
+                            + SITE_FKEY_BYTES + SITE_LOGIN_MACRO_SIZE)
 #define SITE_FILE_SIZE_MAX (SITE_MAGIC_SIZE + sizeof(ULONG) + sizeof(struct PrefsStruct) \
                             + SITE_FKEY_BYTES + SITE_LOGIN_MACRO_SIZE)
 

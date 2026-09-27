@@ -35,7 +35,18 @@ struct PrefsStruct
     char  displayidstr[32];
     UWORD toolBarWin_left,
           toolBarWin_top;
+    /* Appended for 256-colour and RTG screens -- the fields above are the
+     * 376-byte layout every older DCTelnet reads and writes (PREFS_V1_SIZE).
+     * The 16 ANSI colours as 0x00RRGGBB in ANSI order (0 black, 1 red ...
+     * 7 white, 8-15 bright). Valid when ansiMagic == PREFS_ANSI_MAGIC; an
+     * older file loads with 0 here and gets them from color[] (RGB4, in
+     * ibmcon's unit-1 order: pen 1 white, pen 7 red). */
+    ULONG ansiMagic;
+    ULONG ansiRGB[16];
 };
+
+#define PREFS_V1_SIZE     376
+#define PREFS_ANSI_MAGIC  0x52474231UL    /* 'RGB1' */
 
 /*
 * Bit flags stored in PrefsStruct->flags.

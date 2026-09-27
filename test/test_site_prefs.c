@@ -153,11 +153,12 @@ static void test_sidecar_round_trip_and_rejects(void) {
     size_t n;
 
     in = entry_with(SITE_GROUP_TERMINAL, make(FLAG_PETSCII_MODE, "Petscii.font", 8));
+    Palette_EnsureAnsi(&in.prefs);          /* live settings always carry it */
     strcpy((char *)in.fKeys, "F1 macro");
     strcpy(in.loginMacro, "\\u\\r\\p\\r");
     n = SitePrefs_Encode(&in, buf, sizeof(buf));
     assert(n == SITE_FILE_SIZE_MAX);
-    assert(buf[0] == 'D' && buf[1] == 'C' && buf[2] == 'S' && buf[3] == '2');
+    assert(buf[0] == 'D' && buf[1] == 'C' && buf[2] == 'S' && buf[3] == '3');
     memset(&out, 0xAA, sizeof(out));
     assert(SitePrefs_Decode(&out, buf, n, globalKeys));
     assert(memcmp(&in, &out, sizeof(in)) == 0);
@@ -175,14 +176,15 @@ static void test_a_dcs1_snapshot_loads_as_all_groups(void) {
     static struct SiteSettings out;
     static TEXT globalKeys[SITE_FKEY_BYTES];
     struct PrefsStruct p = make(FLAG_PETSCII_MODE, "Petscii.font", 8);
-    UBYTE buf[4 + sizeof(struct PrefsStruct)];
+    UBYTE buf[4 + PREFS_V1_SIZE];
 
     memcpy(buf, "DCS1", 4);
-    memcpy(buf + 4, &p, sizeof(p));
+    memcpy(buf + 4, &p, PREFS_V1_SIZE);
     strcpy((char *)globalKeys, "global F1");
     assert(SitePrefs_Decode(&out, buf, sizeof(buf), globalKeys));
     assert(out.groups == SITE_GROUPS_ALL);
-    assert(memcmp(&out.prefs, &p, sizeof(p)) == 0);
+    assert(memcmp(&out.prefs, &p, PREFS_V1_SIZE) == 0);
+    assert(out.prefs.ansiMagic == PREFS_ANSI_MAGIC);
     assert(strcmp((char *)out.fKeys, "global F1") == 0);
     assert(out.loginMacro[0] == 0);
     assert(!SitePrefs_Decode(&out, buf, sizeof(buf) - 1, globalKeys));
@@ -290,7 +292,31 @@ static void test_group_summaries(void) {
     assert(strcmp(out, "Standard keys") == 0);
 }
 
+/* Settings files from the groups build ('DCS2', the 376-byte PrefsStruct
+ * before the ANSI palette block) still load: groups, keys and macro kept,
+ * the palette converted from the RGB4 colours. */
+static void test_a_dcs2_file_loads_with_its_palette_converted(void) {
+    static struct SiteSettings out;
+    static TEXT globalKeys[SITE_FKEY_BYTES];
+    static UBYTE buf[SITE_FILE_SIZE_V2];
+    struct PrefsStruct p = make(FLAG_PETSCII_MODE, "Petscii.font", 8);
+    ULONG groups = SITE_GROUP_TERMINAL;
+    UBYTE *q = buf;
+
+    p.color[7] = 0xF00;
+    memcpy(q, "DCS2", 4);                    q += 4;
+    memcpy(q, &groups, 4);                   q += 4;
+    memcpy(q, &p, PREFS_V1_SIZE);            q += PREFS_V1_SIZE;
+    memcpy(q, "keys", 5);                    q += SITE_FKEY_BYTES;
+    memcpy(q, "macro", 6);
+    assert(SitePrefs_Decode(&out, buf, sizeof(buf), globalKeys));
+    assert(out.groups == SITE_GROUP_TERMINAL);
+    assert(strcmp((char *)out.fKeys, "keys") == 0 && strcmp(out.loginMacro, "macro") == 0);
+    assert(out.prefs.ansiMagic == PREFS_ANSI_MAGIC && out.prefs.ansiRGB[1] == 0xFF0000);
+}
+
 int main(void) {
+    test_a_dcs2_file_loads_with_its_palette_converted();
     test_differing_groups_names_what_changed();
     test_group_summaries();
     test_entry_function_keys_swap_in_and_back();

@@ -3,7 +3,7 @@
 CC := cc
 CFLAGS := -std=c99 -Wall -Wextra -Werror -I../src
 
-TESTS := test_petscii_modules test_petscii_dispatch test_site_prefs
+TESTS := test_petscii_modules test_petscii_dispatch test_site_prefs test_palette
 
 .PHONY: all clean check-encoding check-fonts
 all: $(TESTS) check-encoding check-fonts
@@ -33,7 +33,10 @@ test_petscii_dispatch: test_petscii_dispatch.c ../src/petscii_dispatch.c ../src/
                        ../src/petscii_screencode.c ../src/petscii_fallback.c $(MODULE_HDR)
 	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^)
 
-test_site_prefs: test_site_prefs.c ../src/site_prefs.c ../src/site_prefs.h ../src/prefs.h
+test_site_prefs: test_site_prefs.c ../src/site_prefs.c ../src/palette.c ../src/site_prefs.h ../src/palette.h ../src/prefs.h
+	$(CC) $(CFLAGS) -Ishim -o $@ $(filter %.c,$^)
+
+test_palette: test_palette.c ../src/palette.c ../src/palette.h ../src/prefs.h
 	$(CC) $(CFLAGS) -Ishim -o $@ $(filter %.c,$^)
 
 clean:
