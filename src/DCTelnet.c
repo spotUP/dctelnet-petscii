@@ -3226,6 +3226,13 @@ static BOOL OpenConsoleDevice(void)
 
     // https://amigadev.elowar.com/read/ADCD_2.1/Includes_and_Autodocs_2._guide/node0344.html
     writeConsoleReq = CreateIORequest(writeConsoleMP, sizeof(struct IOStdReq));
+    if (!writeConsoleReq)       // the console is reopened at run time too
+    {
+        DeleteMsgPort(writeConsoleMP);
+        writeConsoleMP = NULL;
+        InfoReq(isRunningOnWB ? NULL : win, "Unable to create the console device request!");
+        return FALSE;
+    }
 
     // The unit number that is a standard parameter for an open call is used
     // specially by this device.
