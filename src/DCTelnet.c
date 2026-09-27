@@ -218,6 +218,11 @@ ULONG sessionSettingsId = 0;      // settings id of the connected entry, 0 = glo
 static TEXT globalFKeys[F_KEY_COUNT * F_KEY_SIZE];
 static BOOL fKeysFromEntry = FALSE;
 static ULONG sessionGroups = 0;   // SITE_GROUP_* the connected entry overrides
+// The global settings and keys as they were when the current connection was
+// prepared: Save Settings to Address Book Entry moves what changed since into
+// the entry and puts these back.
+static struct PrefsStruct connectBasePrefs;
+static TEXT connectBaseKeys[F_KEY_COUNT * F_KEY_SIZE];
 
 #define XEM_GLOBAL_OPTIONS "PROGDIR:DCTelnet.XEM"
 
@@ -666,6 +671,9 @@ BOOL BeginEntrySession(ULONG settingsId, const struct SiteSettings *entry)
     if (isConnected) DisConnect(FALSE, FALSE);
     EndEntrySession();
 
+    connectBasePrefs = prefs;
+    memcpy(connectBaseKeys, fKeys, sizeof(connectBaseKeys));
+
     connectionDisplay = TRUE;
     if (entry)
     {
@@ -690,12 +698,41 @@ BOOL BeginEntrySession(ULONG settingsId, const struct SiteSettings *entry)
  */
 void AdoptEntrySession(ULONG settingsId, ULONG groups)
 {
-    if (sessionSettingsId != settingsId)
+    if (!sessionSettingsId)
     {
-        globalPrefs = prefs;
-        sessionSettingsId = settingsId;
+        // What was changed since connecting now belongs to the entry: the
+        // global settings go back to how they were then.
+        globalPrefs = connectBasePrefs;
     }
+    sessionSettingsId = settingsId;
     sessionGroups = groups;
+    if ((groups & SITE_GROUP_KEYBOARD) && !fKeysFromEntry)
+    {
+        memcpy(globalFKeys, connectBaseKeys, sizeof(globalFKeys));
+        fKeysFromEntry = TRUE;
+    }
+}
+
+// The settings and keys the current connection started from (see AdoptEntrySession).
+const struct PrefsStruct *ConnectBaseSettings(void)
+{
+    return &connectBasePrefs;
+}
+
+const TEXT *ConnectBaseFKeys(void)
+{
+    return connectBaseKeys;
+}
+
+// The global settings and function keys, also while an entry's are live.
+const struct PrefsStruct *GlobalSettings(void)
+{
+    return sessionSettingsId ? &globalPrefs : &prefs;
+}
+
+const TEXT *GlobalFKeys(void)
+{
+    return fKeysFromEntry ? globalFKeys : fKeys;
 }
 
 BOOL SessionOverridesKeyboard(void)
@@ -840,22 +877,18 @@ static BOOL InitializeReqToolsLib(ULONG reqtoolsTags[5])
     return result;
 }
 
-static BOOL ChooseScreen(char firsttime)
+/**
+ * @brief Screen mode requester writing into target (the live settings, or an
+ *        Address Book entry's copy). TRUE when the user chose a mode.
+ */
+BOOL ScreenModeInto(struct PrefsStruct *target)
 {
     BOOL result = FALSE;
 
-    if(firsttime)
-    {
-        prefs.DisplayID     = (PAL_MONITOR_ID | HIRES_KEY); // PAL High Res (640×256), no interlaced
-        prefs.DisplayWidth  = 640;
-        prefs.DisplayHeight = 256;
-        prefs.DisplayDepth  = 4;
-    }
-
     if (AslBase && AslBase->lib_Version >= 38) // ASL screen mode requester introduced with AmigaOS 2.1
     {
-        result = ScreenModeRequester(isRunningOnWB ? NULL : win, &prefs.DisplayID,
-                                    &prefs.DisplayWidth, &prefs.DisplayHeight, &prefs.DisplayDepth);
+        result = ScreenModeRequester(isRunningOnWB ? NULL : win, &target->DisplayID,
+                                    &target->DisplayWidth, &target->DisplayHeight, &target->DisplayDepth);
     }
     else    // fallback to legacy ReqTools library
     {
@@ -872,10 +905,10 @@ static BOOL ChooseScreen(char firsttime)
                 // (...)
             //} else {
                 //rtChangeReqAttr(scrmodereq, RTSC_ModeFromScreen, scr, TAG_END);
-            scrmodereq->DisplayID     = prefs.DisplayID;
-            scrmodereq->DisplayWidth  = prefs.DisplayWidth;
-            scrmodereq->DisplayHeight = prefs.DisplayHeight;
-            scrmodereq->DisplayDepth  = prefs.DisplayDepth;
+            scrmodereq->DisplayID     = target->DisplayID;
+            scrmodereq->DisplayWidth  = target->DisplayWidth;
+            scrmodereq->DisplayHeight = target->DisplayHeight;
+            scrmodereq->DisplayDepth  = target->DisplayDepth;
             //}
 
             if (rtScreenModeRequest (scrmodereq, "Screen Mode..",
@@ -884,43 +917,71 @@ static BOOL ChooseScreen(char firsttime)
                                      RTSC_MaxDepth,    4,
                                      TAG_END))
             {
-                prefs.DisplayID     = scrmodereq->DisplayID;
-                prefs.DisplayWidth  = scrmodereq->DisplayWidth;
-                prefs.DisplayHeight = scrmodereq->DisplayHeight;
-                prefs.DisplayDepth  = scrmodereq->DisplayDepth;
+                target->DisplayID     = scrmodereq->DisplayID;
+                target->DisplayWidth  = scrmodereq->DisplayWidth;
+                target->DisplayHeight = scrmodereq->DisplayHeight;
+                target->DisplayDepth  = scrmodereq->DisplayDepth;
                 result = TRUE;
             }
             rtFreeRequest (scrmodereq);
         }
     }
-
-    // On first time init, returning FALSE prevents the preferences from being written to disk.
     return result;
 }
 
-static void ChoosePalette(void)
+static BOOL ChooseScreen(char firsttime)
+{
+    if(firsttime)
+    {
+        prefs.DisplayID     = (PAL_MONITOR_ID | HIRES_KEY); // PAL High Res (640x256), no interlaced
+        prefs.DisplayWidth  = 640;
+        prefs.DisplayHeight = 256;
+        prefs.DisplayDepth  = 4;
+    }
+
+    // On first time init, returning FALSE prevents the preferences from being written to disk.
+    return ScreenModeInto(&prefs);
+}
+
+/**
+ * @brief Palette requester for colors[16] (the live palette, or an Address
+ *        Book entry's copy). The requester edits the screen itself, so the
+ *        screen shows colors while it is open and gets the live palette back
+ *        afterwards when colors is someone else's. TRUE when the user kept it.
+ */
+BOOL EditPalette(UWORD colors[16])
 {
     APTR reqinfo;
     ULONG reqtoolsTags[5];
+    BOOL kept = FALSE;
 
     InitializeReqToolsLib(reqtoolsTags);
 
     reqinfo = rtAllocRequestA(RT_REQINFO, NULL);
     if(reqinfo)
     {
+        LoadRGB4(&scr->ViewPort, colors, 16);
         if(rtPaletteRequestA("Screen Palette..", reqinfo, (struct TagItem *)&reqtoolsTags) != -1)
         {
             UWORD i = 0;
 
             while(i < 16)
             {
-                prefs.color[i] = GetRGB4(scr->ViewPort.ColorMap, i);
+                colors[i] = GetRGB4(scr->ViewPort.ColorMap, i);
                 i++;
             }
+            kept = TRUE;
         }
+        if (colors != prefs.color)
+            LoadRGB4(&scr->ViewPort, prefs.color, 16);
         rtFreeRequest(reqinfo);
     }
+    return kept;
+}
 
+static void ChoosePalette(void)
+{
+    EditPalette(prefs.color);
 }
 
 
@@ -2772,10 +2833,24 @@ static void GetWindowMsg(struct Window *wwin)
                         break;
 
                     case MENU_SAVE_ENTRY_SETTINGS:
-                        if (!SaveSettingsToConnectedEntry())
-                            InfoReq(isRunningOnWB ? NULL : win,
-                                    "Connect to an Address Book entry first.\n"
-                                    "(Or the Sites drawer could not be written.)");
+                        switch (SaveSettingsToConnectedEntry())
+                        {
+                            case SAVE_ENTRY_NOT_CONNECTED:
+                                InfoReq(isRunningOnWB ? NULL : win,
+                                        "Connect to an Address Book entry first.");
+                                break;
+                            case SAVE_ENTRY_NOTHING_CHANGED:
+                                InfoReq(isRunningOnWB ? NULL : win,
+                                        "Nothing was changed since connecting,\n"
+                                        "so there is nothing to save to this entry.");
+                                break;
+                            case SAVE_ENTRY_WRITE_ERROR:
+                                InfoReq(isRunningOnWB ? NULL : win,
+                                        "Could not save the settings to PROGDIR:Sites.");
+                                break;
+                            default:
+                                break;
+                        }
                         break;
 
                     case MENU_SEND_USERNAME:

@@ -239,7 +239,60 @@ static void test_entry_function_keys_swap_in_and_back(void) {
     assert(strcmp((char *)live, "global F1") == 0);
 }
 
+/* Save Settings to Address Book Entry stores the groups the user changed
+ * since connecting -- one field of a group is enough to mark it. */
+static void test_differing_groups_names_what_changed(void) {
+    static TEXT keysA[SITE_FKEY_BYTES], keysB[SITE_FKEY_BYTES];
+    struct PrefsStruct a = make(0, "IBM.font", 8), b = a;
+
+    assert(SitePrefs_DifferingGroups(&a, &b, keysA, keysB) == 0);
+    b.flags |= FLAG_HIDE_LEDS; b.win_left = 7; b.sb_lines = 1;     /* app-wide + geometry */
+    assert(SitePrefs_DifferingGroups(&a, &b, keysA, keysB) == 0);
+
+    b = a; b.fontsize = 11;
+    assert(SitePrefs_DifferingGroups(&a, &b, keysA, keysB) == SITE_GROUP_SCREEN);
+    b = a; strcpy(b.displayidstr, "ANSI");
+    assert(SitePrefs_DifferingGroups(&a, &b, keysA, keysB) == SITE_GROUP_TERMINAL);
+    b = a; strcpy(b.xferinit, "TN");
+    assert(SitePrefs_DifferingGroups(&a, &b, keysA, keysB) == SITE_GROUP_TRANSFER);
+    b = a; strcpy((char *)keysB, "F1");
+    assert(SitePrefs_DifferingGroups(&a, &b, keysA, keysB) == SITE_GROUP_KEYBOARD);
+    b = a; b.flags |= FLAG_BS_DEL_SWAP | FLAG_PETSCII_MODE;
+    assert(SitePrefs_DifferingGroups(&a, &b, keysA, keysB) == (SITE_GROUP_KEYBOARD | SITE_GROUP_TERMINAL));
+}
+
+/* The settings window's one-line summary per group. */
+static void test_group_summaries(void) {
+    struct PrefsStruct p = make(FLAG_PETSCII_MODE | FLAG_BS_DEL_SWAP, "Petscii.font", 8);
+    char out[80];
+
+    strcpy(p.displayidstr, "PETSCII");
+    strcpy(p.xferlibrary, "xprzmodem.library");
+    SitePrefs_GroupSummary(SITE_GROUP_SCREEN, &p, out, sizeof(out));
+    assert(strcmp(out, "Petscii 8, 640x256, 16 colours") == 0);
+    SitePrefs_GroupSummary(SITE_GROUP_TERMINAL, &p, out, sizeof(out));
+    assert(strcmp(out, "PETSCII Mode, type PETSCII") == 0);
+    SitePrefs_GroupSummary(SITE_GROUP_KEYBOARD, &p, out, sizeof(out));
+    assert(strcmp(out, "BS/DEL Swap") == 0);
+    SitePrefs_GroupSummary(SITE_GROUP_TRANSFER, &p, out, sizeof(out));
+    assert(strcmp(out, "xprzmodem.library") == 0);
+
+    p.flags = FLAG_USE_WORKBENCH | FLAG_USE_XEM_LIBRARY | FLAG_RETURN_CRLF;
+    strcpy(p.displaydriver, "xemvt340.library");
+    SitePrefs_GroupSummary(SITE_GROUP_SCREEN, &p, out, 20);          /* truncates safely */
+    assert(strlen(out) == 19);
+    SitePrefs_GroupSummary(SITE_GROUP_TERMINAL, &p, out, sizeof(out));
+    assert(strcmp(out, "XEM xemvt340.library, type PETSCII") == 0);
+    SitePrefs_GroupSummary(SITE_GROUP_KEYBOARD, &p, out, sizeof(out));
+    assert(strcmp(out, "Return = CR + LF") == 0);
+    p.flags = 0;
+    SitePrefs_GroupSummary(SITE_GROUP_KEYBOARD, &p, out, sizeof(out));
+    assert(strcmp(out, "Standard keys") == 0);
+}
+
 int main(void) {
+    test_differing_groups_names_what_changed();
+    test_group_summaries();
     test_entry_function_keys_swap_in_and_back();
     test_login_macro_expands_codes();
     test_sidecar_round_trip_and_rejects();

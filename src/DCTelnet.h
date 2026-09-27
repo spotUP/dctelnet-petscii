@@ -104,6 +104,12 @@ void DeferConnect(const char *name, const char *host, UWORD port, ULONG settings
 void SendLoginMacro(const char *macro);
 BOOL SessionOverridesKeyboard(void);
 void AdoptEntrySession(ULONG settingsId, ULONG groups);
+BOOL ScreenModeInto(struct PrefsStruct *target);
+const struct PrefsStruct *GlobalSettings(void);
+const TEXT *GlobalFKeys(void);
+const struct PrefsStruct *ConnectBaseSettings(void);
+const TEXT *ConnectBaseFKeys(void);
+BOOL EditPalette(UWORD colors[16]);
 extern struct List *scrollbackList;
 extern struct Screen *scr;
 extern struct TextFont *ansiFont;

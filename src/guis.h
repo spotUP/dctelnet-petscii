@@ -52,7 +52,14 @@ void StampConnectedEntry(void);
 void EntryXemOptionsPath(ULONG id, char *path);
 void RememberConnectedEntry(const char *name, const char *host, UWORD port);
 void ForgetConnectedEntry(void);
-BOOL SaveSettingsToConnectedEntry(void);
+enum SaveEntryResult
+{
+    SAVE_ENTRY_SAVED,
+    SAVE_ENTRY_NOT_CONNECTED,       // not connected through the Address Book
+    SAVE_ENTRY_NOTHING_CHANGED,     // no group differs and the entry overrides none
+    SAVE_ENTRY_WRITE_ERROR
+};
+enum SaveEntryResult SaveSettingsToConnectedEntry(void);
 void RefreshListView(UWORD top);
 void OpenToolBarWindow(char setmenus);
 void CloseToolBarWindow(void);
