@@ -35,6 +35,7 @@ static char MainWindowTitle[] =
 #include <proto/exec.h>               // OpenLibrary(), GetMsg(), ReplyMsg(), AllocMem()...
 #include <proto/dos.h>                // Open(), Close(), Read(), Write(), PutStr()...
 #include <proto/intuition.h>          // OpenWindow(),CloseWindow(), OnMenu(), OffMenu()...
+#include <graphics/videocontrol.h>      // VTAG_BORDERBLANK_SET
 #include <proto/graphics.h>           // Move(), SetAPen(), Text(), SetFont(), Draw()
 #include <proto/gadtools.h>           // GT_GetIMsg(), GT_ReplyIMsg()...
 #include <proto/diskfont.h>           // OpenDiskFont()
@@ -3577,6 +3578,15 @@ struct Screen* OpenAppScreen(void)
 
     // Own screen with 32+ colours: the ANSI colours on pens of their own.
     ansiOwnPens = scr && !isRunningOnWB && Palette_AnsiPens(AppScreenDepth(scr), ansiPens);
+
+    // Border blank (V39, ECS/AGA): the overscan border shows colour 0, which
+    // on 32+ colours is the UI's grey pen 0 -- keep it black like the terminal.
+    if (scr && !isRunningOnWB && GfxBase->LibNode.lib_Version >= 39)
+    {
+        VideoControlTags(scr->ViewPort.ColorMap, VTAG_BORDERBLANK_SET, TRUE, TAG_DONE);
+        MakeScreen(scr);
+        RethinkDisplay();
+    }
     return scr;
 }
 
