@@ -49,6 +49,7 @@ struct SiteSettings;
 BOOL LoadEntrySettings(ULONG id, struct SiteSettings *out);
 BOOL SaveEntrySettings(ULONG id, const struct SiteSettings *settings);
 void StampConnectedEntry(void);
+void EntryXemOptionsPath(ULONG id, char *path);
 void RememberConnectedEntry(const char *name, const char *host, UWORD port);
 void ForgetConnectedEntry(void);
 BOOL SaveSettingsToConnectedEntry(void);

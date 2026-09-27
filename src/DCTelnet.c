@@ -211,6 +211,26 @@ ULONG sessionSettingsId = 0;      // settings id of the connected entry, 0 = glo
 // The global function keys, kept aside while an entry's own (Keyboard group) are live.
 static TEXT globalFKeys[F_KEY_COUNT * F_KEY_SIZE];
 static BOOL fKeysFromEntry = FALSE;
+static ULONG sessionGroups = 0;   // SITE_GROUP_* the connected entry overrides
+
+#define XEM_GLOBAL_OPTIONS "PROGDIR:DCTelnet.XEM"
+
+/**
+ * @brief The XEM options file for the current connection: the entry's own
+ *        (PROGDIR:Sites/<id>.xem) when it overrides the Terminal group,
+ *        else the global PROGDIR:DCTelnet.XEM.
+ */
+const char *CurrentXemOptionsPath(void)
+{
+    static char path[40];
+
+    if (sessionSettingsId && (sessionGroups & SITE_GROUP_TERMINAL))
+    {
+        EntryXemOptionsPath(sessionSettingsId, path);
+        return path;
+    }
+    return XEM_GLOBAL_OPTIONS;
+}
 // An entry's settings file stores the function keys with this size.
 typedef char FKeysMatchSiteSettings[SITE_FKEY_BYTES == F_KEY_COUNT * F_KEY_SIZE ? 1 : -1];
 
@@ -608,6 +628,8 @@ BOOL BeginEntrySession(ULONG settingsId, const struct SiteSettings *entry)
     SitePrefs_ApplyEntry(&prefs, &globalPrefs, entry);
     fKeysFromEntry = SitePrefs_SwapInKeys(fKeys, globalFKeys, entry);
     sessionSettingsId = settingsId;
+    sessionGroups = entry->groups;
+    ReloadXemOptions();
     RequestDisplayReopen(&before);
     return shouldRestart;
 }
@@ -616,6 +638,22 @@ BOOL BeginEntrySession(ULONG settingsId, const struct SiteSettings *entry)
  * @brief Restore the global settings after an entry session (disconnect or a
  *        failed connect). Requests a display reopen when they differ.
  */
+/**
+ * @brief The live settings were just saved as an entry's own (Settings > Save
+ *        Settings to Address Book Entry): treat the rest of this connection as
+ *        that entry's session. A session already running for it only takes
+ *        the new group set.
+ */
+void AdoptEntrySession(ULONG settingsId, ULONG groups)
+{
+    if (sessionSettingsId != settingsId)
+    {
+        globalPrefs = prefs;
+        sessionSettingsId = settingsId;
+    }
+    sessionGroups = groups;
+}
+
 BOOL SessionOverridesKeyboard(void)
 {
     return fKeysFromEntry;
@@ -635,6 +673,12 @@ void EndEntrySession(void)
     before = prefs;
     SitePrefs_Restore(&prefs, &globalPrefs);
     sessionSettingsId = 0;
+    if (sessionGroups & SITE_GROUP_TERMINAL)
+    {
+        sessionGroups = 0;
+        ReloadXemOptions();
+    }
+    sessionGroups = 0;
     RequestDisplayReopen(&before);
 }
 
@@ -2623,7 +2667,13 @@ static void GetWindowMsg(struct Window *wwin)
 
                     case MENU_XEM_LIB_OPTIONS:
                         if (xemIO)
+                        {
                             XEmulatorOptions(xemIO);
+                            // Saved as the global options unless an entry's own Terminal
+                            // settings are live: then the change is session-only.
+                            if (!(sessionSettingsId && (sessionGroups & SITE_GROUP_TERMINAL)))
+                                SaveXemOptions(XEM_GLOBAL_OPTIONS);
+                        }
                         else
                             InfoReq(isRunningOnWB ? NULL : win, "The XEM library is currently "
                                            "disabled, so related functionality is unavailable.");
