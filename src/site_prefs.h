@@ -94,4 +94,13 @@ size_t SitePrefs_NextMacroSegment(const char **cursor, const char *user, const c
 BOOL SitePrefs_SwapInKeys(TEXT *live, TEXT *aside, const struct SiteSettings *entry);
 void SitePrefs_SwapOutKeys(TEXT *live, const TEXT *aside);
 
+/* The groups whose members differ between a and b (keysA/keysB are their
+ * F1-F10). App-wide settings and window geometry never count. */
+ULONG SitePrefs_DifferingGroups(const struct PrefsStruct *a, const struct PrefsStruct *b,
+                                const TEXT *keysA, const TEXT *keysB);
+
+/* One-line summary of a group's settings in p, for the settings window.
+ * Always NUL-terminated within max. */
+void SitePrefs_GroupSummary(ULONG group, const struct PrefsStruct *p, char *out, size_t max);
+
 #endif /* SITE_PREFS_H */

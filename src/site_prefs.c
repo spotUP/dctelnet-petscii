@@ -201,3 +201,124 @@ void SitePrefs_SwapOutKeys(TEXT *live, const TEXT *aside)
 {
     memcpy(live, aside, SITE_FKEY_BYTES);
 }
+
+static BOOL group_differs(ULONG group, const struct PrefsStruct *a, const struct PrefsStruct *b)
+{
+    /* Apply b's group onto a copy of a: the group differs iff the result
+     * is not a. Uses the one definition of the group members above. */
+    static struct PrefsStruct result;
+    static struct SiteSettings entry;
+
+    entry.groups = group;
+    entry.prefs = *b;
+    result = *a;
+    SitePrefs_ApplyEntry(&result, a, &entry);
+    return memcmp(&result, a, sizeof(result)) != 0;
+}
+
+ULONG SitePrefs_DifferingGroups(const struct PrefsStruct *a, const struct PrefsStruct *b,
+                                const TEXT *keysA, const TEXT *keysB)
+{
+    ULONG groups = 0;
+
+    if (group_differs(SITE_GROUP_SCREEN, a, b))   groups |= SITE_GROUP_SCREEN;
+    if (group_differs(SITE_GROUP_TERMINAL, a, b)) groups |= SITE_GROUP_TERMINAL;
+    if (group_differs(SITE_GROUP_TRANSFER, a, b)) groups |= SITE_GROUP_TRANSFER;
+    if (group_differs(SITE_GROUP_KEYBOARD, a, b) || memcmp(keysA, keysB, SITE_FKEY_BYTES) != 0)
+        groups |= SITE_GROUP_KEYBOARD;
+    return groups;
+}
+
+/* Bounded string building for the summaries (no printf: this file also runs
+ * on the host and in a 68000 build without a C library formatter). */
+static void put(char *out, size_t *len, size_t max, const char *str)
+{
+    while (*str && *len + 1 < max) out[(*len)++] = *str++;
+    out[*len] = 0;
+}
+
+static void put_num(char *out, size_t *len, size_t max, ULONG n)
+{
+    char digits[12];
+    int i = sizeof(digits) - 1;
+
+    digits[i] = 0;
+    do { digits[--i] = (char)('0' + n % 10); n /= 10; } while (n && i > 0);
+    put(out, len, max, &digits[i]);
+}
+
+static void put_font(char *out, size_t *len, size_t max, const struct PrefsStruct *p)
+{
+    char name[sizeof(p->fontname)];
+    char *dot;
+
+    memcpy(name, p->fontname, sizeof(name));
+    name[sizeof(name) - 1] = 0;
+    dot = strrchr(name, '.');
+    if (dot && strcmp(dot, ".font") == 0) *dot = 0;
+    put(out, len, max, name);
+    put(out, len, max, " ");
+    put_num(out, len, max, p->fontsize);
+}
+
+void SitePrefs_GroupSummary(ULONG group, const struct PrefsStruct *p, char *out, size_t max)
+{
+    size_t len = 0;
+
+    if (max == 0) return;
+    out[0] = 0;
+    if (group == SITE_GROUP_SCREEN)
+    {
+        if (p->flags & FLAG_USE_WORKBENCH)
+        {
+            put(out, &len, max, "Workbench, ");
+            put_font(out, &len, max, p);
+        }
+        else
+        {
+            put_font(out, &len, max, p);
+            put(out, &len, max, ", ");
+            put_num(out, &len, max, p->DisplayWidth);
+            put(out, &len, max, "x");
+            put_num(out, &len, max, p->DisplayHeight);
+            put(out, &len, max, ", ");
+            put_num(out, &len, max, 1UL << p->DisplayDepth);
+            put(out, &len, max, " colours");
+        }
+    }
+    else if (group == SITE_GROUP_TERMINAL)
+    {
+        if (p->flags & FLAG_PETSCII_MODE)
+            put(out, &len, max, "PETSCII Mode");
+        else if (p->flags & FLAG_USE_XEM_LIBRARY)
+        {
+            put(out, &len, max, "XEM ");
+            put(out, &len, max, p->displaydriver);
+        }
+        else
+            put(out, &len, max, "ANSI");
+        put(out, &len, max, ", type ");
+        put(out, &len, max, p->displayidstr);
+        if (p->flags & FLAG_RAW_CONNECTION) put(out, &len, max, ", Raw Connection");
+        if (p->flags & FLAG_LOCAL_ECHO)     put(out, &len, max, ", Local Echo");
+    }
+    else if (group == SITE_GROUP_KEYBOARD)
+    {
+        if (p->flags & FLAG_BS_DEL_SWAP) put(out, &len, max, "BS/DEL Swap");
+        if (p->flags & FLAG_RETURN_CRLF)
+        {
+            if (len) put(out, &len, max, ", ");
+            put(out, &len, max, "Return = CR + LF");
+        }
+        if (!len) put(out, &len, max, "Standard keys");
+    }
+    else if (group == SITE_GROUP_TRANSFER)
+    {
+        put(out, &len, max, p->xferlibrary[0] ? p->xferlibrary : "No protocol");
+        if (p->xferinit[0])
+        {
+            put(out, &len, max, ", ");
+            put(out, &len, max, p->xferinit);
+        }
+    }
+}
