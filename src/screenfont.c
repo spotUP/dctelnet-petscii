@@ -12,9 +12,30 @@ static BOOL same_name(const char *a, const char *b)
     return *a == *b;
 }
 
-BOOL ScreenFont_WantsTopazPro(const char *fontname, UWORD resolutionX, UWORD resolutionY)
+void ScreenFont_ForMode(const char *fontname, UWORD fontsize,
+                        UWORD resolutionX, UWORD resolutionY, struct ScreenFontChoice *out)
 {
-    return resolutionX != 0 && resolutionX == resolutionY && same_name(fontname, "topaz.font");
+    BOOL topaz = same_name(fontname, "topaz.font");
+    BOOL pro   = same_name(fontname, TOPAZ_PRO_NAME);
+    BOOL known = resolutionX != 0 && resolutionY != 0;
+
+    out->name = fontname;
+    out->size = fontsize;
+    out->topazPro = pro;
+    if (!known || !(topaz || pro))
+        return;
+    if (resolutionX == resolutionY)
+    {
+        out->name = TOPAZ_PRO_NAME;
+        out->size = TOPAZ_PRO_SIZE;
+        out->topazPro = TRUE;
+    }
+    else if (pro)
+    {
+        out->name = "topaz.font";
+        out->size = 8;
+        out->topazPro = FALSE;
+    }
 }
 
 void ScreenFont_Grid(UWORD width, UWORD height, UWORD gzzWidth, UWORD gzzHeight, BOOL gzz,

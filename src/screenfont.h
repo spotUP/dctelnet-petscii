@@ -4,12 +4,21 @@
 
 #include <exec/types.h>
 
-/* Topaz was drawn for the Amiga's tall non-square pixels. On a mode with
- * square pixels (resolution ticks x == y: every RTG mode, AGA hires
- * interlaced) it looks squashed, and Topaz Pro -- topaz redrawn for square
- * pixels, 8x16 -- replaces it. A font the user chose is never swapped.
- * resolutionX/Y are DisplayInfo.Resolution (0 when unknown). */
-BOOL ScreenFont_WantsTopazPro(const char *fontname, UWORD resolutionX, UWORD resolutionY);
+/* Topaz was drawn for the Amiga's tall non-square pixels; Topaz Pro is
+ * topaz redrawn for square pixels (8x16 for topaz 8). The two are one face:
+ * on a mode with square pixels (resolution ticks x == y: every RTG mode,
+ * AGA hires interlaced) topaz or Topaz Pro opens as Topaz Pro 16, on any
+ * other mode as topaz -- Topaz Pro as topaz 8. Every other font opens as
+ * chosen. resolutionX/Y are DisplayInfo.Resolution (0 when unknown: the
+ * font as chosen). */
+struct ScreenFontChoice
+{
+    const char *name;
+    UWORD       size;
+    BOOL        topazPro;       /* the bundled Topaz Pro */
+};
+void ScreenFont_ForMode(const char *fontname, UWORD fontsize,
+                        UWORD resolutionX, UWORD resolutionY, struct ScreenFontChoice *out);
 
 /* The text grid a terminal window holds, as ibmcon.device measures it
  * (MeasureGrid): the drawable area -- the inner area of a GimmeZeroZero

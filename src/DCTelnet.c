@@ -3602,11 +3602,13 @@ struct Screen* OpenAppScreen(void)
     fontAttr.ta_YSize = prefs.fontsize;
     ansiFont = NULL;
 
-    // On a mode with square pixels (every RTG mode) topaz looks squashed:
-    // Topaz Pro, topaz redrawn for square pixels, replaces it -- for the
-    // screen (title bar, menus) and the terminal alike.
+    // topaz and Topaz Pro are one face: Topaz Pro on square pixels (every
+    // RTG mode), topaz on the Amiga's tall ones -- for the screen (title
+    // bar, menus) and the terminal alike.
     {
         struct DisplayInfo di;
+        struct ScreenFontChoice pick;
+        UWORD resX = 0, resY = 0;
         ULONG modeID = prefs.DisplayID;
 
         if (isRunningOnWB)
@@ -3617,16 +3619,16 @@ struct Screen* OpenAppScreen(void)
             if (wb) UnlockPubScreen(NULL, wb);
         }
         if (modeID != INVALID_ID
-            && GetDisplayInfoData(NULL, (UBYTE *)&di, sizeof(di), DTAG_DISP, modeID)
-            && ScreenFont_WantsTopazPro(prefs.fontname, di.Resolution.x, di.Resolution.y))
+            && GetDisplayInfoData(NULL, (UBYTE *)&di, sizeof(di), DTAG_DISP, modeID))
         {
-            ansiFont = OpenBundledFont(TOPAZ_PRO_NAME, "PROGDIR:Fonts/" TOPAZ_PRO_NAME, TOPAZ_PRO_SIZE);
-            if (ansiFont)
-            {
-                fontAttr.ta_Name  = TOPAZ_PRO_NAME;     // in the font list now: OpenScreen finds it
-                fontAttr.ta_YSize = TOPAZ_PRO_SIZE;
-            }
+            resX = (UWORD)di.Resolution.x;
+            resY = (UWORD)di.Resolution.y;
         }
+        ScreenFont_ForMode(prefs.fontname, prefs.fontsize, resX, resY, &pick);
+        fontAttr.ta_Name  = (STRPTR)pick.name;
+        fontAttr.ta_YSize = pick.size;
+        if (pick.topazPro)      // bundled: in the font list once open, so OpenScreen finds it
+            ansiFont = OpenBundledFont(TOPAZ_PRO_NAME, "PROGDIR:Fonts/" TOPAZ_PRO_NAME, TOPAZ_PRO_SIZE);
     }
     if (!ansiFont)
         ansiFont = OpenDiskFont(&fontAttr);

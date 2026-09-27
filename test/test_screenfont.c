@@ -1,18 +1,36 @@
 /* test/test_screenfont.c -- Topaz Pro on square-pixel screens. */
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include "screenfont.h"
 
 /* Topaz was drawn for the Amiga's tall non-square pixels (PAL hires is 22x44
  * ticks per pixel); on square-pixel modes -- every RTG mode -- it looks
  * squashed. Topaz Pro replaces it there, and only it: a font the user chose
  * is never swapped. */
+static int picks(const char *font, UWORD size, UWORD rx, UWORD ry, const char *name, UWORD want) {
+    struct ScreenFontChoice c;
+
+    ScreenFont_ForMode(font, size, rx, ry, &c);
+    return strcmp(c.name, name) == 0 && c.size == want
+        && c.topazPro == (strcmp(name, TOPAZ_PRO_NAME) == 0);
+}
+
 static void test_topaz_on_square_pixels_becomes_topaz_pro(void) {
-    assert(ScreenFont_WantsTopazPro("topaz.font", 44, 44));       /* RTG */
-    assert(ScreenFont_WantsTopazPro("Topaz.font", 22, 22));       /* case-insensitive */
-    assert(!ScreenFont_WantsTopazPro("topaz.font", 22, 44));      /* PAL hires */
-    assert(!ScreenFont_WantsTopazPro("IBM.font", 44, 44));        /* the user's choice */
-    assert(!ScreenFont_WantsTopazPro("topaz.font", 0, 0));        /* no display info */
+    assert(picks("topaz.font", 8, 44, 44, TOPAZ_PRO_NAME, 16));   /* RTG */
+    assert(picks("Topaz.font", 8, 22, 22, TOPAZ_PRO_NAME, 16));   /* case-insensitive */
+    assert(picks("topaz.font", 8, 22, 44, "topaz.font", 8));      /* PAL hires */
+    assert(picks("IBM.font", 8, 44, 44, "IBM.font", 8));          /* the user's choice */
+    assert(picks("topaz.font", 8, 0, 0, "topaz.font", 8));        /* no display info */
+}
+
+/* An Address Book entry saved with Topaz Pro kept it on a 640x256 PAL
+ * screen, where Topaz Pro's square-pixel shapes look stretched: topaz and
+ * Topaz Pro are one face, Topaz Pro only on square pixels. */
+static void test_topaz_pro_on_tall_pixels_becomes_topaz(void) {
+    assert(picks(TOPAZ_PRO_NAME, 16, 22, 44, "topaz.font", 8));   /* PAL hires */
+    assert(picks(TOPAZ_PRO_NAME, 16, 44, 44, TOPAZ_PRO_NAME, 16)); /* RTG */
+    assert(picks(TOPAZ_PRO_NAME, 16, 0, 0, TOPAZ_PRO_NAME, 16));   /* no display info */
 }
 
 /* DCTelnet told the BBS (telnet NAWS) the outer window size: a 640 x 200
@@ -49,6 +67,7 @@ static void test_window_stops_at_80_columns(void) {
 int main(void) {
     test_window_stops_at_80_columns();
     test_topaz_on_square_pixels_becomes_topaz_pro();
+    test_topaz_pro_on_tall_pixels_becomes_topaz();
     test_window_size_sent_to_the_bbs_is_the_text_area();
     printf("screenfont: all assertions passed\n");
     return 0;
