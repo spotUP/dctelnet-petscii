@@ -235,6 +235,12 @@ IO_DATA             EQU $28
 
 CMD_WRITE           EQU 3
 CMD_DIE             EQU $7FF0   ; private: DevClose -> handler "exit"
+; 1.5: a client hands over the 16 screen pens for the ANSI colours:
+; io_Data -> UBYTE pens[16] in ANSI order (0 black .. 7 white, 8-15 bright).
+; Colour codes then stay logical and are mapped at every pen that reaches
+; graphics.library; the unit 1<->7 swap and the depth checks no longer apply.
+IBMCMD_SETPENS      EQU $7FE0
+rp_Mask             EQU $18
 IOERR_OPENFAIL      EQU -1
 IOERR_NOCMD         EQU $FD     ; -3 as a byte
 
@@ -410,6 +416,10 @@ con_Params          EQU $1E4    ; 24 parameter BYTES
 con_RawBuf          EQU $1FC    ; up to 10 raw chars + NUL ('>','?',...)
 con_CharMask        EQU $207    ; OR-mask for printables ($80 after SO)
 con_SavedMask       EQU $208    ; 's'/'u' snapshot of con_CharMask
+                                ; 1.5: the console struct grows by $12
+con_PenMap          EQU $20A    ; 16 bytes: logical ANSI pen -> screen pen
+con_PenMapOn        EQU $21A    ; word: <>0 once a client sent IBMCMD_SETPENS
+CON_FRAME           EQU $222    ; handler stack frame holding con (was $210)
 
 ;=====================================================================
         SECTION "Segment0",CODE
@@ -758,7 +768,7 @@ DevExpunge:                             ; was AJL_0_27A
 ;   $60 = con_InitModes
 ;---------------------------------------------------------------------
 HandlerProc:                            ; was JL_0_2EC
-        suba.w  #$210,A7
+        suba.w  #CON_FRAME,A7
         movem.l A3-A6,-(A7)
         move.l  A6,$10(A7)
         suba.l  A1,A1
@@ -795,6 +805,7 @@ HandlerProc:                            ; was JL_0_2EC
         movea.l $10(A7),A6
         beq.w   .exit                   ; no port -> die silently
         move.l  g_RastPort(A4),$1E(A7)  ; con_RastPort
+        clr.w   $16+con_PenMapOn(A7)    ; 1.5: no pen table yet
         lea     $61(A7),A5              ; low byte of con_InitModes
         bclr    #0,(A5)                 ; LNM off (LF = pure linefeed)
         bset    #2,(A5)                 ; scroll at margins on
@@ -813,6 +824,8 @@ HandlerProc:                            ; was JL_0_2EC
         beq.b   .depth3
         subq.l  #1,D0
         beq.b   .depth4plus
+        bpl.b   .depth4plus             ; 1.5 FIXED: depth 5 and up (AGA
+                                        ;   256, RTG) fell into mono below
 .depth1:                                ; 2 colours: mono, pen 1,
         lea     $56(A7),A5              ;   colours+bold ignored
         move.w  #1,(A5)+                ; con_DefaultPen = 1
@@ -851,6 +864,8 @@ HandlerProc:                            ; was JL_0_2EC
 .gotMsg:                                ; A5 = IOStdReq
         moveq   #0,D0
         move.w  IO_COMMAND(A5),D0
+        cmpi.l  #IBMCMD_SETPENS,D0      ; 1.5: pen table from the client
+        beq.b   .doSetPens
         subq.l  #3,D0                   ; CMD_WRITE?
         beq.b   .doWrite
         subi.l  #CMD_DIE-CMD_WRITE,D0   ; CMD_DIE?
@@ -860,6 +875,12 @@ HandlerProc:                            ; was JL_0_2EC
         movea.l A5,A1
         jsr     _LVOReplyMsg(A6)
         bra.b   .exit
+.doSetPens:
+        move.l  IO_DATA(A5),-(A7)
+        pea     $1A(A7)                 ; &con (one long pushed)
+        bsr.w   SetPenMap
+        addq.w  #8,A7
+        bra.b   .reply
 .doWrite:
         move.l  IO_LENGTH(A5),-(A7)
         move.l  IO_DATA(A5),-(A7)
@@ -879,10 +900,10 @@ HandlerProc:                            ; was JL_0_2EC
         movea.l $10(A7),A6
         tst.l   D0
         bne.b   .gotMsg
-        bra.b   .mainWait
+        bra.w   .mainWait
 .exit:
         movem.l (A7)+,A3-A6
-        adda.w  #$210,A7
+        adda.w  #CON_FRAME,A7
         rts                             ; process terminates
 
 ;---------------------------------------------------------------------
@@ -901,7 +922,8 @@ ConInit:                                ; was JL_0_458
         movea.l con_RastPort(A5),A1
         movea.l g_GfxBase(A4),A6
         moveq   #0,D0
-        jsr     _LVOSetRast(A6)         ; clear window to pen 0
+        bsr.w   MapPen                  ; 1.5: ANSI black, not UI pen 0
+        jsr     _LVOSetRast(A6)         ; clear window to the background
         movea.l g_RastPort(A4),A1
         movea.l rp_Font(A1),A0          ; A0 = font
         movea.l g_Window(A4),A1         ; A1 = window
@@ -965,11 +987,13 @@ ConInit:                                ; was JL_0_458
         bcs.b   .setTab
         moveq   #0,D0
         move.w  con_FgPen(A5),D0
+        bsr.w   MapPen
         movea.l con_RastPort(A5),A1
         movea.l g_GfxBase(A4),A6
         jsr     _LVOSetAPen(A6)
         moveq   #0,D0
         move.w  con_BgPen(A5),D0
+        bsr.w   MapPen
         movea.l con_RastPort(A5),A1
         jsr     _LVOSetBPen(A6)
         clr.l   -(A7)
@@ -980,6 +1004,65 @@ ConInit:                                ; was JL_0_458
         lea     $C(A7),A7
         movem.l (A7)+,A5-A6
         adda.w  #$10,A7
+        rts
+
+;---------------------------------------------------------------------
+; MapPen (1.5) -- D0.l = logical ANSI pen (0-15). With a client pen table
+; returns the screen pen for it in D0.l; without one D0 is unchanged.
+; In: A5 = con. Changes only D0.
+;---------------------------------------------------------------------
+MapPen:
+        tst.w   con_PenMapOn(A5)
+        beq.b   .raw
+        move.l  A0,-(A7)                ; 68000: an indexed displacement is
+        lea     con_PenMap(A5),A0       ;   8-bit, con_PenMap ($20A) is not
+        andi.w  #15,D0
+        move.b  0(A0,D0.W),D0
+        andi.l  #$FF,D0
+        movea.l (A7)+,A0
+.raw:
+        rts
+
+;---------------------------------------------------------------------
+; SetPenMap(con, pens) (1.5) -- IBMCMD_SETPENS: take the client's 16
+; screen pens for the ANSI colours, switch to full colour (all 16 pens and
+; bold exist), and redraw the empty console with them.
+;---------------------------------------------------------------------
+SetPenMap:
+        movem.l A2/A5-A6,-(A7)
+        movea.l $10(A7),A5              ; con
+        movea.l $14(A7),A2              ; pens
+        move.l  A5,-(A7)
+        bsr.w   ToggleCursor            ; remove the cursor (old pens)
+        addq.w  #4,A7
+        lea     con_PenMap(A5),A0
+        moveq   #15,D0
+.copy:
+        move.b  (A2)+,(A0)+
+        dbf     D0,.copy
+        move.w  #1,con_PenMapOn(A5)
+        move.w  #1,con_BoldPens(A5)
+        clr.w   con_FixedPen(A5)
+        movea.l g_GfxBase(A4),A6
+        moveq   #0,D0
+        move.w  con_FgPen(A5),D0
+        bsr.w   MapPen
+        movea.l con_RastPort(A5),A1
+        jsr     _LVOSetAPen(A6)
+        moveq   #0,D0
+        move.w  con_BgPen(A5),D0
+        bsr.w   MapPen
+        movea.l con_RastPort(A5),A1
+        jsr     _LVOSetBPen(A6)
+        moveq   #0,D0
+        move.w  con_BgPen(A5),D0
+        bsr.w   MapPen
+        movea.l con_RastPort(A5),A1
+        jsr     _LVOSetRast(A6)         ; clear to the ANSI background
+        move.l  A5,-(A7)
+        bsr.w   ToggleCursor            ; draw the cursor with the new pens
+        addq.w  #4,A7
+        movem.l (A7)+,A2/A5-A6
         rts
 
 ;---------------------------------------------------------------------
@@ -1169,12 +1252,14 @@ Csi_u_RestoreCursor:                    ; was AJL_0_6DA
         move.w  con_SavedModes(A5),con_Modes(A5)
         moveq   #0,D0
         move.w  con_SavedFg(A5),D0
+        bsr.w   MapPen
         move.l  A6,$8(A7)
         movea.l con_RastPort(A5),A1
         movea.l g_GfxBase(A4),A6
         jsr     _LVOSetAPen(A6)
         moveq   #0,D0
         move.w  con_BgPen(A5),D0
+        bsr.w   MapPen
         movea.l con_RastPort(A5),A1
         jsr     _LVOSetBPen(A6)
         move.l  con_Attrs(A5),D0
@@ -1450,6 +1535,8 @@ Csi_m_SetGraphics:                      ; was AJL_0_858
         move.w  D0,con_FgPen(A5)
 .fgNotDefault:
         moveq   #1,D6                   ; fg changed
+        tst.w   con_PenMapOn(A5)
+        bne.w   .next                   ; 1.5: a pen table is in ANSI order
         move.l  g_UnitNum(A4),D0
         ble.w   .next                   ; unit 0: pens used as-is
         moveq   #1,D0                   ; unit >=1: swap pens 1 and 7
@@ -1457,11 +1544,11 @@ Csi_m_SetGraphics:                      ; was AJL_0_858
         bne.b   .fgTry7                 ;    Amiga: 1=black 7=...)
         moveq   #7,D1
         move.w  D1,con_FgPen(A5)
-        bra.b   .next
+        bra.w   .next
 .fgTry7:
         moveq   #7,D1
         cmp.w   con_FgPen(A5),D1
-        bne.b   .next
+        bne.w   .next
         move.w  D0,con_FgPen(A5)
         bra.b   .next
 .sgrBackground:                         ; 40-47, 49
@@ -1475,12 +1562,17 @@ Csi_m_SetGraphics:                      ; was AJL_0_858
         moveq   #9,D1
         cmp.w   D1,D0
         beq.b   .bgDefault              ; 49: default background = 0
+        tst.w   con_PenMapOn(A5)
+        bne.b   .bgOk                   ; 1.5: the table has all 16 pens
         movea.l g_Window(A4),A1         ; validate against screen depth
         movea.l wd_WScreen(A1),A0
         movea.l sc_vpRasInfo(A0),A1
         movea.l ri_BitMap(A1),A0
         moveq   #0,D1
         move.b  bm_Depth(A0),D1
+        cmpi.b  #4,D1
+        bhi.b   .bgOk                   ; 1.5 FIXED: 32+ colours have all 16
+                                        ;   (bset is mod 32: depth 32 = 1 pen)
         moveq   #0,D2
         bset    D1,D2                   ; D2 = number of pens
         moveq   #0,D1
@@ -1492,6 +1584,8 @@ Csi_m_SetGraphics:                      ; was AJL_0_858
         move.w  D1,con_BgPen(A5)
 .bgOk:
         move.w  #1,$2A(A7)              ; bg changed
+        tst.w   con_PenMapOn(A5)
+        bne.b   .next                   ; 1.5: a pen table is in ANSI order
         move.l  g_UnitNum(A4),D0
         ble.b   .next
         moveq   #1,D0                   ; unit >=1: swap pens 1 and 7
@@ -1541,6 +1635,7 @@ Csi_m_SetGraphics:                      ; was AJL_0_858
 .setAPen:
         moveq   #0,D0
         move.w  con_FgPen(A5),D0
+        bsr.w   MapPen
         movea.l con_RastPort(A5),A1
         movea.l g_GfxBase(A4),A6
         jsr     _LVOSetAPen(A6)
@@ -1550,6 +1645,7 @@ Csi_m_SetGraphics:                      ; was AJL_0_858
         beq.b   .applyStyle
         moveq   #0,D0
         move.w  con_BgPen(A5),D0
+        bsr.w   MapPen
         movea.l con_RastPort(A5),A1
         movea.l g_GfxBase(A4),A6
         jsr     _LVOSetBPen(A6)
@@ -2032,6 +2128,7 @@ ClearRect:                              ; was JL_0_EEC
         movea.l con_RastPort(A5),A1
         moveq   #0,D0
         move.w  con_BgPen(A5),D0
+        bsr.w   MapPen
         movea.l g_GfxBase(A4),A6
         jsr     _LVOSetAPen(A6)         ; fill colour = background
         moveq   #0,D0
@@ -2053,6 +2150,7 @@ ClearRect:                              ; was JL_0_EEC
 .restorePen:
         moveq   #0,D0
         move.w  con_FgPen(A5),D0
+        bsr.w   MapPen
         movea.l con_RastPort(A5),A1
         jsr     _LVOSetAPen(A6)         ; back to the text pen
         movem.l (A7)+,D2-D3/A5-A6
@@ -2348,6 +2446,19 @@ ToggleCursor:                           ; was JL_0_1182
         movea.l g_GfxBase(A4),A6
         moveq   #COMPLEMENT,D0
         jsr     _LVOSetDrMd(A6)
+        tst.w   con_PenMapOn(A5)        ; 1.5: with a pen table the ANSI
+        beq.b   .maskDone               ;   pens are anywhere in the palette,
+        moveq   #0,D0                   ;   so COMPLEMENT only flips the bits
+        move.w  con_FgPen(A5),D0        ;   in which fg and bg differ: the
+        bsr.w   MapPen                  ;   cell swaps fg and bg exactly
+        move.l  D0,D1
+        moveq   #0,D0
+        move.w  con_BgPen(A5),D0
+        bsr.w   MapPen
+        eor.b   D1,D0
+        movea.l con_RastPort(A5),A1
+        move.b  D0,rp_Mask(A1)
+.maskDone:
         movea.l g_RastPort(A4),A1
         movea.l rp_Font(A1),A0
         moveq   #0,D0
@@ -2380,6 +2491,7 @@ ToggleCursor:                           ; was JL_0_1182
         movea.l g_GfxBase(A4),A6
         jsr     _LVORectFill(A6)        ; XOR the cell
         movea.l con_RastPort(A5),A1
+        move.b  #$FF,rp_Mask(A1)        ; 1.5: all planes again
         moveq   #JAM2,D0
         jsr     _LVOSetDrMd(A6)         ; back to normal text mode
         movem.l (A7)+,D2-D3/A5-A6
@@ -2657,7 +2769,8 @@ ClearScreenHome:                        ; was JL_0_14C8
         movea.l g_GfxBase(A4),A6
         moveq   #0,D0
         move.w  con_BgPen(A5),D0        ; FIXED: clear to the current
-        jsr     _LVOSetRast(A6)         ;   background pen (was 0)
+        bsr.w   MapPen                  ;   background pen (was 0)
+        jsr     _LVOSetRast(A6)
         moveq   #1,D0
         move.w  D0,con_Row(A5)
         move.w  D0,con_Col(A5)
@@ -3128,8 +3241,11 @@ DevBeginIO:                             ; was AJL_0_1976
         moveq   #0,D0
         move.w  IO_COMMAND(A1),D0
         move.l  A6,$8(A7)
+        cmpi.l  #IBMCMD_SETPENS,D0      ; 1.5: pen table -> handler too
+        beq.b   .forward
         subq.l  #CMD_WRITE,D0
         bne.b   .badCmd
+.forward:
         movea.l g_CmdPort(A4),A0
         movea.l AbsExecBase.W,A6
         jsr     _LVOPutMsg(A6)          ; handler will ReplyMsg
@@ -3726,7 +3842,7 @@ DevIdString:                            ; was AL_2_2C
 GlobalsInit:                            ; was SegmentBeginn3
         ds.l    1                       ; $000: (unused)
         dc.b    0                       ; $004
-        dc.b    "$VER: ibmcon.device 1.4 (Mar  9 1998)",0,0
+        dc.b    "$VER: ibmcon.device 1.5 (Sep 27 2026)",0,0
 
 ;--- $02C: CSI dispatch table ----------------------------------------
 ; 6 bytes per entry: function pointer, prefix char (0 = none), final

@@ -63,3 +63,20 @@ No runtime test environment exists here (would need an Amiga emulator
 with a client that opens the device); verification of the fixes is
 assemble-clean plus a manual register/stack audit of each changed
 routine.
+
+## 1.5 (2026-09-27, for DCTelnet's RTG/256-colour work)
+
+* **Depth 5 and deeper get colours.** The depth switch handled 1-4 only;
+  256-colour AGA and RTG screens fell into the monochrome case.
+* **Pen table (`IBMCMD_SETPENS`, io_Command `$7FE0`).** A client sends
+  io_Data -> `UBYTE pens[16]` in ANSI order. Colour codes then stay logical
+  0-15 and are mapped at every SetAPen/SetBPen/SetRast; the unit-1 pen 1<->7
+  swap and the depth check of background pens no longer apply; clears use
+  the mapped ANSI background instead of pen 0. Not reachable from the
+  written byte stream, so a BBS cannot change it. Without the command the
+  device behaves as 1.4 (plus the depth fix).
+* **Cursor with a pen table:** COMPLEMENT with write mask fg^bg, so the
+  cell swaps foreground and background exactly wherever the pens sit.
+* Background-pen check: depth 32 no longer rejects every pen (bset is
+  modulo 32).
+* `make check` proves the code is plain 68000 despite the MC68020 directive.
