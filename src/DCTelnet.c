@@ -4364,7 +4364,16 @@ void CreateAppMenus(void)
 
 
     // Gadtools CreateMenuA() generates a list of Intuition Menu structs.
-    mainMenuStrip = CreateMenusA(mainMenuDesc, 0);
+    // Menu item text in the screen's menu text pen: without it GadTools
+    // uses pen 0, which on 16 colours is ANSI black but on 32+ colours the
+    // UI's grey -- every item looked disabled.
+    {
+        static ULONG ctags[] = { GTMN_FrontPen, 1, TAG_END };
+
+        if (drawInfo)
+            ctags[1] = drawInfo->dri_Pens[BARDETAILPEN];
+        mainMenuStrip = CreateMenusA(mainMenuDesc, (struct TagItem *)ctags);
+    }
     #ifdef _DEBUG
         Printf("   <-- CreateMenusA() => %s\n", (mainMenuStrip != NULL) ? "succeeded" : "failed");
     #endif
