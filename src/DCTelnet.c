@@ -288,6 +288,7 @@ static UWORD colorPens[]  = { 1,4,1,1,6,4,1,0,5,4,1,6,65535 };
 // handed to ibmcon with IBMCMD_SETPENS; the UI keeps pens 0-7.
 static UBYTE ansiPens[16];
 static BOOL  ansiOwnPens = FALSE;
+static BOOL  wbPensObtained = FALSE;    // ansiPens came from ObtainBestPen on the Workbench
 #define IBMCMD_SETPENS 0x7FE0          // ibmcon.device 1.5
 static UWORD color[] = { 0x0000, 0x0DDD, 0x00D0, 0x0DD0, 0x000D, 0x0D0D, 0x00DD, 0x0D00,
           0x0555, 0x0FFF, 0x00F0, 0x0FF0, 0x000F, 0x0F0F, 0x00FF, 0x0F00, 65535 };
@@ -977,6 +978,8 @@ static UWORD LegacyPen(UWORD ibmconIndex)
 // on 32+ colours, pens 0-15 (RGB4, ibmcon order) otherwise.
 static void LoadAnsiPalette(struct PrefsStruct *target)
 {
+    if (isRunningOnWB)
+        return;                 // the Workbench's pens are shared: never recolour them
     if (ansiOwnPens && GfxBase->LibNode.lib_Version >= 39)
     {
         UWORD i;
@@ -1005,6 +1008,12 @@ BOOL EditPalette(struct PrefsStruct *target)
     ULONG reqtoolsTags[5];
     BOOL kept = FALSE;
 
+    if (isRunningOnWB)
+    {
+        InfoReq(win, "The palette can only be edited on DCTelnet's own screen:\n"
+                     "on the Workbench its colours come from the Workbench palette.");
+        return FALSE;
+    }
     InitializeReqToolsLib(reqtoolsTags);
 
     reqinfo = rtAllocRequestA(RT_REQINFO, NULL);
@@ -3258,8 +3267,8 @@ static void ClosePetsciiFonts(void)
 }
 
 /**
- * @brief Open the console device (ibmcon.device, or console.device on the
- *        Workbench) on the main window, with the RastPort's current font.
+ * @brief Open the console device (ibmcon.device, also on the Workbench) on
+ *        the main window, with the RastPort's current font.
  */
 static BOOL OpenConsoleDevice(void)
 {
@@ -3269,7 +3278,9 @@ static BOOL OpenConsoleDevice(void)
         UBYTE conDeviceSigBit;
     #endif
     UWORD unitNumber;
-    char *devName = isRunningOnWB ? "console.device" : "ibmcon.device";
+    // ibmcon also on the Workbench: console.device cannot take a pen table, so
+    // ANSI colours would land on the Workbench's own pens 0-7.
+    char *devName = "ibmcon.device";
     BOOL b;
 
     // Exec Device I/O Functions docs:
@@ -3293,14 +3304,27 @@ static BOOL OpenConsoleDevice(void)
 
     // The unit number that is a standard parameter for an open call is used
     // specially by this device.
-    if (isRunningOnWB)
+    if(prefs.flags & FLAG_JUMP_SCROLL)
+        unitNumber = 2; // unit 2 is undocumented in the NDK and AmigaOS docs
+    else
+        unitNumber = CONU_CHARMAP;
+
+    // On the Workbench the ANSI colours take 16 shared pens of exactly their
+    // colours from its palette (V39); they go back in CloseConsoleDevice().
+    if (isRunningOnWB && GfxBase->LibNode.lib_Version >= 39)
     {
-        unitNumber = CONU_SNIPMAP;
-    } else {
-        if(prefs.flags & FLAG_JUMP_SCROLL)
-            unitNumber = 2; // unit 2 is undocumented in the NDK and AmigaOS docs
-        else
-            unitNumber = CONU_CHARMAP;
+        UWORD i;
+
+        for (i = 0; i < 16; i++)
+        {
+            ULONG c = prefs.ansiRGB[i];
+            ansiPens[i] = (UBYTE)ObtainBestPen(scr->ViewPort.ColorMap,
+                              ((c >> 16) & 0xFF) * 0x01010101UL, ((c >> 8) & 0xFF) * 0x01010101UL,
+                              (c & 0xFF) * 0x01010101UL,
+                              OBP_Precision, PRECISION_EXACT, TAG_DONE);
+        }
+        wbPensObtained = TRUE;
+        ansiOwnPens = TRUE;
     }
 
     //the window that is used by the console device for output:
@@ -3351,10 +3375,21 @@ static BOOL OpenConsoleDevice(void)
 }
 
 /**
- * @brief Close the console device and free its request and port.
+ * @brief Close the console device and free its request and port (and give
+ *        the Workbench back its pens).
  */
 static void CloseConsoleDevice(void)
 {
+    if (wbPensObtained)
+    {
+        UWORD i;
+
+        for (i = 0; i < 16; i++)
+            ReleasePen(scr->ViewPort.ColorMap, ansiPens[i]);
+        wbPensObtained = FALSE;
+        ansiOwnPens = FALSE;
+    }
+
     // https://amigadev.elowar.com/read/ADCD_2.1/Devices_Manual_guide/node0190.html
     if (isConDeviceOpened)
     {
@@ -3842,8 +3877,6 @@ BOOL OpenDisplay(void)
 
         if(drivertype == DRIVER_XEM_LIB)
             dispEngine = prefs.displaydriver;
-        else if (isRunningOnWB)
-            dispEngine = "console.device";
         else
             dispEngine = "ibmcon.device";
 
