@@ -18,9 +18,9 @@
 /*
  * An entry overrides settings by GROUP (Term 4.x style): an overridden group's
  * members come from the entry, every other setting from the global ones.
- *   Screen:   DisplayID/Width/Height/Depth, fontname, fontsize, color[16]
- *             (Use Workbench is app-wide: an entry never moves DCTelnet
- *             between the Workbench and its own screen)
+ *   Screen:   fontname, fontsize, color[16], ansiRGB[16] (the screen mode and
+ *             Use Workbench are app-wide: an entry never changes where or in
+ *             which mode DCTelnet runs)
  *   Terminal: FLAG_PETSCII_MODE, FLAG_USE_XEM_LIBRARY, displaydriver,
  *             displayidstr, FLAG_RAW_CONNECTION, FLAG_LOCAL_ECHO (+ XEM options)
  *   Keyboard: FLAG_BS_DEL_SWAP, FLAG_RETURN_CRLF (+ function keys)

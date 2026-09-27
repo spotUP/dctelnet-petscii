@@ -48,10 +48,6 @@ void SitePrefs_ApplyEntry(struct PrefsStruct *live, const struct PrefsStruct *gl
 
     if (entry->groups & SITE_GROUP_SCREEN)
     {
-        result.DisplayID     = e->DisplayID;
-        result.DisplayWidth  = e->DisplayWidth;
-        result.DisplayHeight = e->DisplayHeight;
-        result.DisplayDepth  = e->DisplayDepth;
         result.fontsize      = e->fontsize;
         memcpy(result.fontname, e->fontname, sizeof(result.fontname));
         memcpy(result.color, e->color, sizeof(result.color));
@@ -301,13 +297,6 @@ void SitePrefs_GroupSummary(ULONG group, const struct PrefsStruct *p, char *out,
     if (group == SITE_GROUP_SCREEN)
     {
         put_font(out, &len, max, p);
-        put(out, &len, max, ", ");
-        put_num(out, &len, max, p->DisplayWidth);
-        put(out, &len, max, "x");
-        put_num(out, &len, max, p->DisplayHeight);
-        put(out, &len, max, ", ");
-        put_num(out, &len, max, 1UL << p->DisplayDepth);
-        put(out, &len, max, " colours");
     }
     else if (group == SITE_GROUP_TERMINAL)
     {

@@ -958,7 +958,7 @@ static ULONG NextSettingsId(struct List *list)
  */
 enum
 {
-    SG_SCREEN_OVR, SG_SCREEN_SUM, SG_SCREEN_CUR, SG_SCREEN_MODE, SG_SCREEN_FONT, SG_SCREEN_PALETTE,
+    SG_SCREEN_OVR, SG_SCREEN_SUM, SG_SCREEN_CUR, SG_SCREEN_FONT, SG_SCREEN_PALETTE,
     SG_TERM_OVR, SG_TERM_SUM, SG_TERM_CUR, SG_TERM_PETSCII, SG_TERM_XEM, SG_TERM_XEMLIB, SG_TERM_DISPID,
     SG_TERM_RAW, SG_TERM_ECHO,
     SG_KEY_OVR, SG_KEY_SUM, SG_KEY_CUR, SG_KEY_BSDEL, SG_KEY_CRLF, SG_KEY_FKEYS,
@@ -985,9 +985,8 @@ static const struct SettingsGadgetDef settingsDefs[SG_COUNT] =
     {  80,   4, 112, 13, "Screen",               PLACETEXT_LEFT,  CYCLE_KIND    },
     { 196,   4, 300, 13, NULL,                   0,               TEXT_KIND     },
     { 500,   4, 112, 13, "Use Current",          PLACETEXT_IN,    BUTTON_KIND   },
-    {  80,  20, 128, 13, "Screen Mode...",       PLACETEXT_IN,    BUTTON_KIND   },
-    { 212,  20,  72, 13, "Font...",              PLACETEXT_IN,    BUTTON_KIND   },
-    { 288,  20,  96, 13, "Palette...",           PLACETEXT_IN,    BUTTON_KIND   },
+    {  80,  20,  72, 13, "Font...",              PLACETEXT_IN,    BUTTON_KIND   },
+    { 156,  20,  96, 13, "Palette...",           PLACETEXT_IN,    BUTTON_KIND   },
 
     {  80,  42, 112, 13, "Terminal",             PLACETEXT_LEFT,  CYCLE_KIND    },
     { 196,  42, 300, 13, NULL,                   0,               TEXT_KIND     },
@@ -1207,11 +1206,6 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
 
                 // A requester button seeds the group (so the requester starts from
                 // the values shown) and keeps the change only when not cancelled.
-                case SG_SCREEN_MODE:
-                    undo = work;
-                    OverrideGroup(&work, SITE_GROUP_SCREEN);
-                    if (!ScreenModeInto(&work.prefs)) work = undo;
-                    break;
                 case SG_SCREEN_FONT:
                     undo = work;
                     OverrideGroup(&work, SITE_GROUP_SCREEN);

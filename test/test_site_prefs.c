@@ -61,6 +61,7 @@ static void test_each_group_moves_only_its_members(void) {
 
     strcpy(e.xferinit, "TN");
     e.DisplayDepth = 8;
+    e.DisplayID = 0x29000;
 
     live = global; entry = entry_with(SITE_GROUP_KEYBOARD, e);
     SitePrefs_ApplyEntry(&live, &global, &entry);
@@ -75,7 +76,10 @@ static void test_each_group_moves_only_its_members(void) {
     /* Use Workbench is app-wide: an entry saved in Workbench mode opened
      * the Workbench window on connect while the user ran DCTelnet on its
      * own 800x600 screen. */
-    assert(live.flags == 0 && live.DisplayDepth == 8 && live.fontsize == 11);
+    assert(live.flags == 0 && live.fontsize == 11);
+    /* The screen mode is app-wide too: the entry's 8-bit PAL mode switched
+     * the user's 800x600 screen on connect. */
+    assert(live.DisplayDepth == 4 && live.DisplayID == global.DisplayID);
     live = make(FLAG_USE_WORKBENCH, "IBM.font", 8);
     global = live;
     e.flags = 0;
@@ -297,7 +301,7 @@ static void test_group_summaries(void) {
     strcpy(p.displayidstr, "VT102");    /* PETSCII Mode sends "PETSCII" regardless */
     strcpy(p.xferlibrary, "xprzmodem.library");
     SitePrefs_GroupSummary(SITE_GROUP_SCREEN, &p, out, sizeof(out));
-    assert(strcmp(out, "Petscii 8, 640x256, 16 colours") == 0);
+    assert(strcmp(out, "Petscii 8") == 0);
     SitePrefs_GroupSummary(SITE_GROUP_TERMINAL, &p, out, sizeof(out));
     assert(strcmp(out, "PETSCII Mode, type PETSCII") == 0);
     SitePrefs_GroupSummary(SITE_GROUP_KEYBOARD, &p, out, sizeof(out));
@@ -307,7 +311,7 @@ static void test_group_summaries(void) {
 
     p.flags = FLAG_USE_WORKBENCH | FLAG_USE_XEM_LIBRARY | FLAG_RETURN_CRLF;
     strcpy(p.displaydriver, "xemvt340.library");
-    SitePrefs_GroupSummary(SITE_GROUP_SCREEN, &p, out, 20);          /* truncates safely */
+    SitePrefs_GroupSummary(SITE_GROUP_TERMINAL, &p, out, 20);        /* truncates safely */
     assert(strlen(out) == 19);
     SitePrefs_GroupSummary(SITE_GROUP_TERMINAL, &p, out, sizeof(out));
     assert(strcmp(out, "XEM xemvt340.library, type VT102") == 0);
