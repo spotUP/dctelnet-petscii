@@ -714,9 +714,11 @@ static void RequestDisplayReopen(const struct PrefsStruct *before)
     EffectiveFont(&now);
     if (SitePrefs_DisplayDiffers(&was, &now, &reopenScreen))
     {
-        // On the Workbench a new font or palette needs only the console
-        // reopened (ReopenTerminal); the window stays.
-        if (isRunningOnWB && SitePrefs_OnlyLookDiffers(&was, &now))
+        // A new font or palette needs only the console reopened
+        // (ReopenTerminal): the window, and DCTelnet's own screen, stay. On
+        // the own screen the title bar and menus keep the screen's font
+        // until the screen is next opened.
+        if (SitePrefs_OnlyLookDiffers(&was, &now))
         {
             shouldReopenConsole = TRUE;
             return;
@@ -3994,6 +3996,8 @@ static void ReopenTerminal(void)
         bbsSize = isRunningOnWB && cols == ArtColumns(win->RPort->Font) && rows == SCREENFONT_BBS_ROWS;
         CloseConsoleDevice();
         OpenAnsiFont();                 // the settings' font (an entry's, the global one)
+        if (!isRunningOnWB)
+            LoadAnsiPalette(&prefs);    // the settings' colours on the terminal's pens
         ClosePetsciiFonts();
         OpenPetsciiFonts();
         SetFont(win->RPort, petsciiFont ? petsciiFont : ansiFont);
@@ -4009,6 +4013,10 @@ static void ReopenTerminal(void)
     }
     if (displayIsPetscii)
         ConWrite(PETSCII_CONSOLE_SETUP, sizeof(PETSCII_CONSOLE_SETUP) - 1);
+    // The grid changed with the font: tell the BBS (on the Workbench the
+    // window's resize does it too, on the own screen nothing else would).
+    if (isConnected)
+        TelnetSendWindowSize();
 }
 
 /**
