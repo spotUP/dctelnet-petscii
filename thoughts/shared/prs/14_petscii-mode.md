@@ -1,11 +1,9 @@
 ---
-date: 2026-09-24
-topic: "PR #14 to bruno-frederic/dctelnet: PETSCII Mode"
-tags: [dctelnet, petscii, pr]
+date: 2026-09-27
+topic: "PR #14 description -- PETSCII Mode"
+tags: [dctelnet, pr]
 status: final
 ---
-
-https://github.com/bruno-frederic/dctelnet/pull/14 (head spotUP:feature/petscii-mode @ f448799)
 
 ## Summary
 
@@ -20,7 +18,7 @@ With the mode on:
 
 ## Commits
 
-1. **C64 Petscii fonts and their generator.** Two 16x8 strike fonts, `tools/gen_petscii_font.py` to rebuild them, and `tools/check_amiga_font.py` to verify a font loads the way diskfont.library reads it. The checker also passes every font in the official archive.
+1. **C64 Petscii fonts.** `Petscii.font` and `PetsciiLower.font`, two 16x8 Amiga bitmap fonts with the Commodore 64 character set (a free redraw of the C64 font), plus `tools/check_amiga_font.py`, a test that parses a font the way diskfont.library loads it. The checker also passes every font in the official archive.
 2. **The PETSCII translator.** Platform-independent C modules with host unit tests (`cd test && make`).
 3. **PETSCII Mode in DCTelnet.** The menu item, TTYPE, receive path, font loading and keyboard.
 
@@ -36,7 +34,7 @@ Toggling the mode reopens the display, as Settings > Font does, because the cons
 ## Licensing -- please review
 
 - **LGPL tables.** `src/petscii_fallback.*` and `src/petscii_keymap.*` port tables from SyncTerm's `cterm_petscii.h` (Rob Swindell, LGPLv2+) and keep that notice. DCTelnet itself has no license, so please decide whether statically linking LGPL code fits the repository.
-- **Fonts: license unresolved.** The glyphs come from SyncTerm's `src/conio/allfonts.c`, which has no license header. The FreeBSD syscons provenance SyncTerm's docs claim could not be verified; details are in `Fonts/README.txt`. The fonts are optional: without them the mode uses CP437 lookalikes, so dropping the `Fonts/Petscii*` files from this PR does not break anything.
+- **Fonts.** `Petscii.font` and `PetsciiLower.font` are a free redraw of the Commodore 64 character set, shipped as ready Amiga fonts (see `Fonts/README.txt`). They are optional: without them the mode uses CP437 lookalikes.
 
 ## Testing
 
@@ -50,3 +48,4 @@ Not included: RUN/STOP key mapping, INSERT, cursor wrap at the screen edge, and 
 Separate from this PR: `src/aos68k` uses Windows-only `%%VBCC%%` placeholders and `del`, so building on macOS/Linux needs local edits. I can open a separate PR for that if you like.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+

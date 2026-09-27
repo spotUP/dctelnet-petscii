@@ -1,0 +1,3 @@
+Root cause fixed in #23 (ibmcon 1.8), exactly where you pointed: ibmcon's handler creates its command port in **its own** process (signal bit 31, a new process's first free bit), but `UnitClose` deleted that port in **the opener's** task, so `FreeSignal` freed the opener's bit 31 -- bsdsocket's. The handler now deletes its own port. Measured on an emulated A1200: a task holding bit 31 opens and closes the device -- 1.7 frees the bit, 1.8 leaves it allocated. Your `AllocSignal(31)` reservation stays for an older ibmcon still in memory. A test on your WinUAE setup would confirm it end to end (steps in #11).
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
