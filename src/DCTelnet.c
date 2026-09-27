@@ -289,6 +289,7 @@ static UWORD colorPens[]  = { 1,4,1,1,6,4,1,0,5,4,1,6,65535 };
 static UBYTE ansiPens[16];
 static BOOL  ansiOwnPens = FALSE;
 static BOOL  wbPensObtained = FALSE;    // ansiPens came from ObtainBestPen on the Workbench
+static BYTE  penTableError = 0;         // io_Error of IBMCMD_SETPENS (IOERR_NOCMD: ibmcon < 1.5)
 #define IBMCMD_SETPENS 0x7FE0          // ibmcon.device 1.5
 static UWORD color[] = { 0x0000, 0x0DDD, 0x00D0, 0x0DD0, 0x000D, 0x0D0D, 0x00DD, 0x0D00,
           0x0555, 0x0FFF, 0x00F0, 0x0FF0, 0x000F, 0x0F0F, 0x00FF, 0x0F00, 65535 };
@@ -3361,6 +3362,7 @@ static BOOL OpenConsoleDevice(void)
             writeConsoleReq->io_Data    = ansiPens;
             writeConsoleReq->io_Length  = sizeof(ansiPens);
             DoIO((struct IORequest *)writeConsoleReq);
+            penTableError = writeConsoleReq->io_Error;
         }
     }
     else
@@ -3878,7 +3880,23 @@ BOOL OpenDisplay(void)
         if(drivertype == DRIVER_XEM_LIB)
             dispEngine = prefs.displaydriver;
         else
-            dispEngine = "ibmcon.device";
+        {
+            // Which ibmcon runs and how it draws the ANSI colours: it is
+            // opened from DEVS:, not from the Devs drawer next to DCTelnet.
+            static char engine[140];
+            struct Library *dev = (struct Library *)writeConsoleReq->io_Device;
+
+            mysprintf(engine, "ibmcon.device %ld.%ld, %ld bit planes",
+                      (LONG)dev->lib_Version, (LONG)dev->lib_Revision,
+                      (LONG)AppScreenDepth(scr));
+            if (ansiOwnPens && penTableError)
+                strlcat(engine, "\r\n  ANSI colours NOT on their own pens: this ibmcon is\r\n"
+                                "  older than 1.5 -- copy Devs/ibmcon.device to DEVS:",
+                        sizeof(engine));
+            else if (ansiOwnPens)
+                strlcat(engine, ", ANSI colours on their own pens", sizeof(engine));
+            dispEngine = engine;
+        }
 
         LocalFmt("›0;1;36m\f\r\n\r\n"
                 "Processor: ›37m680%lc0\r\n\r\n›36m"
