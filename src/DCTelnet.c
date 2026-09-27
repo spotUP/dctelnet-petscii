@@ -160,6 +160,7 @@ static struct NewMenu mainMenuDesc[] =
 
 static void GetWindowMsg(struct Window *wwin);
 static void SendMisc(char *str, long len);
+static void SwitchPetsciiDisplay(void);
 static void ResetTelnetContext(void);
 static void ResetZmodemContext(void);
 static void SetLocalEchoBack(BOOL wantedState);
@@ -272,6 +273,7 @@ static BOOL isConnected;    // tcp connected
 #endif
 static BOOL shouldRestart;    // prefs changed, restart
 static BOOL shouldReopenScreen;    // flag
+static BOOL shouldReopenConsole;   // only the C64 display changes: reopen the console in place
 BOOL isRunningOnWB; // running in wb
 BOOL isAppIconified;    // iconified
 static BOOL shouldIconify;        // must iconify
@@ -634,10 +636,7 @@ static struct
 static void SyncPetsciiDisplay(void)
 {
     if ((PETSCII_SESSION() != 0) != displayIsPetscii)
-    {
-        shouldRestart = TRUE;
-        shouldReopenScreen = TRUE;
-    }
+        shouldReopenConsole = TRUE;     // SwitchPetsciiDisplay() in the main loop
 }
 
 static void RequestDisplayReopen(const struct PrefsStruct *before)
@@ -687,7 +686,7 @@ BOOL BeginEntrySession(ULONG settingsId, const struct SiteSettings *entry)
         RequestDisplayReopen(&before);
     }
     SyncPetsciiDisplay();
-    return shouldRestart;
+    return shouldRestart || shouldReopenConsole;
 }
 
 /**
@@ -1923,6 +1922,12 @@ int main(int argc, char *argv[])
 
                 shouldRestart = FALSE;
                 shouldReopenScreen = FALSE;
+                shouldReopenConsole = FALSE;    // the full reopen covered it
+            }
+            else if (shouldReopenConsole)
+            {
+                SwitchPetsciiDisplay();
+                shouldReopenConsole = FALSE;
             }
 
             // After the reopen, so the connect sees the entry's display settings.
@@ -3155,6 +3160,198 @@ static struct TextFont *OpenPetsciiFont(STRPTR name, STRPTR progdirPath)
     return font;
 }
 
+/**
+ * @brief Open the C64 fonts when the display should be the C64 one (a PETSCII
+ *        session), and record which display this is.
+ */
+static void OpenPetsciiFonts(void)
+{
+    displayIsPetscii = PETSCII_SESSION() != 0;
+    if (displayIsPetscii)
+    {
+        /* Petscii/PetsciiLower.font: real C64 glyphs indexed by raw PETSCII
+         * byte, double-width (16x8) cells so 40 columns fill roughly the
+         * physical width the normal 80-column font needs. Not installed:
+         * both stay NULL and Receive() renders CP437 lookalikes instead. */
+        petsciiFont = OpenPetsciiFont("Petscii.font", "PROGDIR:Fonts/Petscii.font");
+        petsciiFontLower = petsciiFont
+            ? OpenPetsciiFont("PetsciiLower.font", "PROGDIR:Fonts/PetsciiLower.font") : NULL;
+    }
+}
+
+static void ClosePetsciiFonts(void)
+{
+    if(petsciiFont)           { CloseFont(petsciiFont);             petsciiFont = NULL; }
+    if(petsciiFontLower)      { CloseFont(petsciiFontLower);        petsciiFontLower = NULL; }
+}
+
+/**
+ * @brief Open the console device (ibmcon.device, or console.device on the
+ *        Workbench) on the main window, with the RastPort's current font.
+ */
+static BOOL OpenConsoleDevice(void)
+{
+    #ifdef _DEBUG
+        ULONG beforeSigAlloc;
+        ULONG afterSigAlloc;
+        UBYTE conDeviceSigBit;
+    #endif
+    UWORD unitNumber;
+    char *devName = isRunningOnWB ? "console.device" : "ibmcon.device";
+    BOOL b;
+
+    // Exec Device I/O Functions docs:
+    // https://amigadev.elowar.com/read/ADCD_2.1/Libraries_Manual_guide/node02A5.html
+
+    // CreateIORequest() requires a message port.
+    writeConsoleMP = CreateMsgPort();
+    if (!writeConsoleMP) { InfoReq(isRunningOnWB ? NULL : win,
+                                 "Unable to create message port for console device!");
+                         return FALSE; }
+
+    // https://amigadev.elowar.com/read/ADCD_2.1/Includes_and_Autodocs_2._guide/node0344.html
+    writeConsoleReq = CreateIORequest(writeConsoleMP, sizeof(struct IOStdReq));
+
+    // The unit number that is a standard parameter for an open call is used
+    // specially by this device.
+    if (isRunningOnWB)
+    {
+        unitNumber = CONU_SNIPMAP;
+    } else {
+        if(prefs.flags & FLAG_JUMP_SCROLL)
+            unitNumber = 2; // unit 2 is undocumented in the NDK and AmigaOS docs
+        else
+            unitNumber = CONU_CHARMAP;
+    }
+
+    //the window that is used by the console device for output:
+    writeConsoleReq->io_Data = win;
+    writeConsoleReq->io_Length = sizeof(struct Window);
+
+    #ifdef _DEBUG
+        PutStr("   --> OpenDevice()\n");
+        beforeSigAlloc = mainTask->tc_SigAlloc;
+        PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
+        LogWindowsSigBit();
+    #endif
+
+    b = OpenDevice(devName, unitNumber, (struct IORequest *)writeConsoleReq, CONFLAG_DEFAULT);
+
+    #ifdef _DEBUG
+        PutStr("   <-- OpenDevice()\n");
+        PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
+        afterSigAlloc = mainTask->tc_SigAlloc;
+        conDeviceSigBit = BitPosition(beforeSigAlloc ^ afterSigAlloc); // XOR help detect the difference
+        Printf("                   conDeviceSigBit = %lu\n", (LONG) conDeviceSigBit);
+        LogWindowsSigBit();
+    #endif
+
+    if(b == RETURN_OK)
+    {
+        isConDeviceOpened = TRUE;
+    }
+    else
+    {
+        isConDeviceOpened = FALSE;
+        InfoReq(isRunningOnWB ? NULL : win, "Failed to open device: %s", devName);
+        // mysprintf(buf,    "Failed to open device: %s", devName);
+        // EZReq(NULL, buf);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+/**
+ * @brief Close the console device and free its request and port.
+ */
+static void CloseConsoleDevice(void)
+{
+    // https://amigadev.elowar.com/read/ADCD_2.1/Devices_Manual_guide/node0190.html
+    if (isConDeviceOpened)
+    {
+        #ifdef _DEBUG
+            PutStr("   --> CloseDevice(&writeConsoleReq)\n");
+            PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
+            LogWindowsSigBit();
+
+            if (! (mainTask->tc_SigAlloc & (1L << 31)))
+            {
+                InfoReq(isRunningOnWB ? NULL : win,
+                        "ERROR: sigbit 31 has disappeared before CloseDevice()! Why???");
+            }
+        #endif
+
+        CloseDevice((struct IORequest *)writeConsoleReq);
+
+        if (mainTask->tc_SigAlloc & (1L << 31))
+        {
+            #ifdef _DEBUG
+                PutStr("   <-- CloseDevice(&writeConsoleReq) => sigbit 31 preserved.\n");
+                PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
+            #endif
+        }
+        else
+        {
+            #ifdef _DEBUG
+                PutStr("   <-- CloseDevice(&writeConsoleReq) => ERROR: sigbit 31 destroyed!!!\n");
+                PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
+                PutStr("   --> AllocSignal(31L)\n");
+            #endif
+
+            dontUseSig31 = AllocSignal(31L);
+            if (dontUseSig31 != 31)
+                InfoReq(isRunningOnWB ? NULL : win, "ERROR: cannot allocate sigbit 31!");
+
+            #ifdef _DEBUG
+                PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
+            #endif
+        }
+
+        isConDeviceOpened = FALSE;
+    }
+
+    if (writeConsoleReq)
+    {
+        DeleteIORequest(writeConsoleReq);
+        writeConsoleReq=NULL;
+    }
+
+    if (writeConsoleMP)
+    {
+        DeleteMsgPort(writeConsoleMP);
+        writeConsoleMP = NULL;
+    }
+}
+
+/**
+ * @brief Switch between the normal and the C64 display without closing the
+ *        screen or the window: the console fixes its cell size at OpenDevice()
+ *        time, so only the console is reopened after the fonts change (ibmcon
+ *        reads the RastPort font live). The XEM library takes its font at
+ *        setup, so an XEM display takes the full reopen instead.
+ */
+static void SwitchPetsciiDisplay(void)
+{
+    if (drivertype != DRIVER_NORMAL || !win)
+    {
+        shouldRestart = TRUE;
+        shouldReopenScreen = TRUE;
+        return;
+    }
+    CloseConsoleDevice();
+    ClosePetsciiFonts();
+    OpenPetsciiFonts();
+    SetFont(win->RPort, petsciiFont ? petsciiFont : ansiFont);
+    if (!OpenConsoleDevice())
+    {
+        shouldRestart = TRUE;       // could not reopen it in place: reopen everything
+        shouldReopenScreen = TRUE;
+        return;
+    }
+    if (displayIsPetscii)
+        ConWrite(PETSCII_CONSOLE_SETUP, sizeof(PETSCII_CONSOLE_SETUP) - 1);
+}
+
 struct Screen* OpenAppScreen(void)
 {
     struct Screen *scr;
@@ -3172,17 +3369,7 @@ struct Screen* OpenAppScreen(void)
         ansiFont = OpenFont(&fontAttr);
     }
 
-    displayIsPetscii = PETSCII_SESSION() != 0;
-    if (displayIsPetscii)
-    {
-        /* Petscii/PetsciiLower.font: real C64 glyphs indexed by raw PETSCII
-         * byte, double-width (16x8) cells so 40 columns fill roughly the
-         * physical width the normal 80-column font needs. Not installed:
-         * both stay NULL and Receive() renders CP437 lookalikes instead. */
-        petsciiFont = OpenPetsciiFont("Petscii.font", "PROGDIR:Fonts/Petscii.font");
-        petsciiFontLower = petsciiFont
-            ? OpenPetsciiFont("PetsciiLower.font", "PROGDIR:Fonts/PetsciiLower.font") : NULL;
-    }
+    OpenPetsciiFonts();
 
     if (isRunningOnWB)
     {
@@ -3477,9 +3664,6 @@ void CreateAppMenus(void)
 BOOL OpenDisplay(void)
 {
     #ifdef _DEBUG
-        ULONG beforeSigAlloc;
-        ULONG afterSigAlloc;
-        UBYTE conDeviceSigBit;
         PutStr("--> OpenDisplay()\n");
     #endif
 
@@ -3536,71 +3720,8 @@ BOOL OpenDisplay(void)
     // Doc about OpenDevice() to open a console device :
     // https://amigadev.elowar.com/read/ADCD_2.1/Libraries_Manual_guide/node029E.html
     // https://amigadev.elowar.com/read/ADCD_2.1/Includes_and_Autodocs_2._guide/node0509.html
-    if(drivertype == DRIVER_NORMAL)
-    {
-        UWORD unitNumber;
-        char *devName = isRunningOnWB ? "console.device" : "ibmcon.device";
-        BOOL b;
-
-        // Exec Device I/O Functions docs:
-        // https://amigadev.elowar.com/read/ADCD_2.1/Libraries_Manual_guide/node02A5.html
-
-        // CreateIORequest() requires a message port.
-        writeConsoleMP = CreateMsgPort();
-        if (!writeConsoleMP) { InfoReq(isRunningOnWB ? NULL : win,
-                                     "Unable to create message port for console device!");
-                             goto clean_and_return; }
-
-        // https://amigadev.elowar.com/read/ADCD_2.1/Includes_and_Autodocs_2._guide/node0344.html
-        writeConsoleReq = CreateIORequest(writeConsoleMP, sizeof(struct IOStdReq));
-
-        // The unit number that is a standard parameter for an open call is used
-        // specially by this device.
-        if (isRunningOnWB)
-        {
-            unitNumber = CONU_SNIPMAP;
-        } else {
-            if(prefs.flags & FLAG_JUMP_SCROLL)
-                unitNumber = 2; // unit 2 is undocumented in the NDK and AmigaOS docs
-            else
-                unitNumber = CONU_CHARMAP;
-        }
-
-        //the window that is used by the console device for output:
-        writeConsoleReq->io_Data = win;
-        writeConsoleReq->io_Length = sizeof(struct Window);
-
-        #ifdef _DEBUG
-            PutStr("   --> OpenDevice()\n");
-            beforeSigAlloc = mainTask->tc_SigAlloc;
-            PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
-            LogWindowsSigBit();
-        #endif
-
-        b = OpenDevice(devName, unitNumber, (struct IORequest *)writeConsoleReq, CONFLAG_DEFAULT);
-
-        #ifdef _DEBUG
-            PutStr("   <-- OpenDevice()\n");
-            PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
-            afterSigAlloc = mainTask->tc_SigAlloc;
-            conDeviceSigBit = BitPosition(beforeSigAlloc ^ afterSigAlloc); // XOR help detect the difference
-            Printf("                   conDeviceSigBit = %lu\n", (LONG) conDeviceSigBit);
-            LogWindowsSigBit();
-        #endif
-
-        if(b == RETURN_OK)
-        {
-            isConDeviceOpened = TRUE;
-        }
-        else
-        {
-            isConDeviceOpened = FALSE;
-            InfoReq(isRunningOnWB ? NULL : win, "Failed to open device: %s", devName);
-            // mysprintf(buf,    "Failed to open device: %s", devName);
-            // EZReq(NULL, buf);
-            goto clean_and_return;
-        }
-    }
+    if (drivertype == DRIVER_NORMAL && !OpenConsoleDevice())
+        goto clean_and_return;
 
     isAppIconified = FALSE;
 
@@ -3696,61 +3817,7 @@ void CloseDisplay(BOOL manageScreen)
     // Unitilize XEM library if it was initialized (does nothing if it was not initialized)
     UninitializeXemLibrary();
 
-    // https://amigadev.elowar.com/read/ADCD_2.1/Devices_Manual_guide/node0190.html
-    if (isConDeviceOpened)
-    {
-        #ifdef _DEBUG
-            PutStr("   --> CloseDevice(&writeConsoleReq)\n");
-            PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
-            LogWindowsSigBit();
-
-            if (! (mainTask->tc_SigAlloc & (1L << 31)))
-            {
-                InfoReq(isRunningOnWB ? NULL : win,
-                        "ERROR: sigbit 31 has disappeared before CloseDevice()! Why???");
-            }
-        #endif
-
-        CloseDevice((struct IORequest *)writeConsoleReq);
-
-        if (mainTask->tc_SigAlloc & (1L << 31))
-        {
-            #ifdef _DEBUG
-                PutStr("   <-- CloseDevice(&writeConsoleReq) => sigbit 31 preserved.\n");
-                PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
-            #endif
-        }
-        else
-        {
-            #ifdef _DEBUG
-                PutStr("   <-- CloseDevice(&writeConsoleReq) => ERROR: sigbit 31 destroyed!!!\n");
-                PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
-                PutStr("   --> AllocSignal(31L)\n");
-            #endif
-
-            dontUseSig31 = AllocSignal(31L);
-            if (dontUseSig31 != 31)
-                InfoReq(isRunningOnWB ? NULL : win, "ERROR: cannot allocate sigbit 31!");
-
-            #ifdef _DEBUG
-                PutStr("SigAlloc:"); PrintBitsULONG(mainTask->tc_SigAlloc);
-            #endif
-        }
-
-        isConDeviceOpened = FALSE;
-    }
-
-    if (writeConsoleReq)
-    {
-        DeleteIORequest(writeConsoleReq);
-        writeConsoleReq=NULL;
-    }
-
-    if (writeConsoleMP)
-    {
-        DeleteMsgPort(writeConsoleMP);
-        writeConsoleMP = NULL;
-    }
+    CloseConsoleDevice();
 
     if(packetWin)
     {
@@ -3793,8 +3860,7 @@ void CloseDisplay(BOOL manageScreen)
             scr = NULL;
         }
         if(ansiFont)              { CloseFont(ansiFont);                ansiFont = NULL; }
-        if(petsciiFont)           { CloseFont(petsciiFont);             petsciiFont = NULL; }
-        if(petsciiFontLower)      { CloseFont(petsciiFontLower);        petsciiFontLower = NULL; }
+        ClosePetsciiFonts();
     }
 
     isAppIconified = TRUE;
