@@ -801,7 +801,7 @@ static struct Window         *editProfileWnd;           // "Edit Address Book Pr
 static struct Gadget         *editProfileGList;         // "Edit Address Book Profile" window GList
 static struct Gadget         *editProfileGadgets[editProfile_CNT]; // "Edit Address Book Profile" window gadgets
 #define editProfileWidth 450
-#define editProfileHeight 167
+#define editProfileHeight 181
 
 static UBYTE editProfileGTypes[] = {
     STRING_KIND,
@@ -816,23 +816,25 @@ static UBYTE editProfileGTypes[] = {
     BUTTON_KIND,
     BUTTON_KIND,
     STRING_KIND,
-    STRING_KIND
+    STRING_KIND,
+    TEXT_KIND
 };
 
 static struct MyNewGadget editProfileNGad[] = {
     120, 5, 317, 13, (UBYTE *)"_Site Name:",
     120, 21, 317, 13, (UBYTE *)"_Address:",
     121, 37, 177, 13, (UBYTE *)"Last Called:",
-    3, 152, 101, 13, (UBYTE *)"_Ok",
-    345, 152, 101, 13, (UBYTE *)"_Cancel",
+    3, 166, 101, 13, (UBYTE *)"_Ok",
+    345, 166, 101, 13, (UBYTE *)"_Cancel",
     365, 37, 72, 13, (UBYTE *)"_Port:",
     120, 53, 317, 13, (UBYTE *)"_Username:",
     120, 68, 317, 13, (UBYTE *)"Pass_word:",
-    120, 116, 317, 13, (UBYTE *)"Settings:",
-    3, 132, 218, 13, (UBYTE *)"Se_ttings...",
-    228, 132, 218, 13, (UBYTE *)"Use _Global Settings",
+    120, 130, 317, 13, (UBYTE *)"Settings:",
+    3, 146, 218, 13, (UBYTE *)"Se_ttings...",
+    228, 146, 218, 13, (UBYTE *)"Use _Global Settings",
     120, 84, 317, 13, (UBYTE *)"Co_mment:",
     120, 100, 317, 13, (UBYTE *)"_Login Macro:",
+    3, 114, 443, 12, NULL,
 };
 
 static ULONG editProfileGTags[] = {
@@ -848,7 +850,8 @@ static ULONG editProfileGTags[] = {
     (GT_Underscore), '_', (TAG_DONE),
     (GT_Underscore), '_', (TAG_DONE),
     GTST_String, 0, (GTST_MaxChars), 63, (GT_Underscore), '_', (TAG_DONE),
-    GTST_String, 0, (GTST_MaxChars), 127, (GT_Underscore), '_', (TAG_DONE)
+    GTST_String, 0, (GTST_MaxChars), 127, (GT_Underscore), '_', (TAG_DONE),
+    GTTX_Text, 0, (TAG_DONE)
 };
 
 // Where each gadget's initial value sits in editProfileGTags[] above (the
@@ -863,6 +866,7 @@ static ULONG editProfileGTags[] = {
 #define EP_TAG_SETTINGS 47
 #define EP_TAG_COMMENT  58
 #define EP_TAG_LOGIN_MACRO 65
+#define EP_TAG_MACRO_HELP  72
 
 // Draw the Edit Address Book Profile window
 static int OpenEditProfileWindow( void )
@@ -971,45 +975,50 @@ struct SettingsGadgetDef
     UWORD kind;
 };
 
-#define settingsWidth  600
-#define settingsHeight 182
+/* Design grid of 8-pixel characters (topaz 8), scaled by ComputeX/Y: a
+ * button is its label's length * 8 + 16, a checkbox 26 plus its label. */
+#define settingsWidth  616
+#define settingsHeight 186
 
 static const struct SettingsGadgetDef settingsDefs[SG_COUNT] =
 {
-    {  90,   4,  26, 11, "Screen",               PLACETEXT_LEFT, CHECKBOX_KIND  },
-    { 120,   4, 340, 12, NULL,                   0, TEXT_KIND               },
-    { 468,   4, 128, 13, "Use Current",          PLACETEXT_IN, BUTTON_KIND    },
-    { 120,  20, 110, 13, "Screen Mode...",       PLACETEXT_IN, BUTTON_KIND    },
-    { 234,  20,  80, 13, "Font...",              PLACETEXT_IN, BUTTON_KIND    },
-    { 318,  20,  90, 13, "Palette...",           PLACETEXT_IN, BUTTON_KIND    },
-    { 420,  21,  26, 11, "Use Workbench",        PLACETEXT_RIGHT, CHECKBOX_KIND },
+    {  80,   4, 112, 13, "Screen",               PLACETEXT_LEFT,  CYCLE_KIND    },
+    { 196,   4, 300, 13, NULL,                   0,               TEXT_KIND     },
+    { 500,   4, 112, 13, "Use Current",          PLACETEXT_IN,    BUTTON_KIND   },
+    {  80,  20, 128, 13, "Screen Mode...",       PLACETEXT_IN,    BUTTON_KIND   },
+    { 212,  20,  72, 13, "Font...",              PLACETEXT_IN,    BUTTON_KIND   },
+    { 288,  20,  96, 13, "Palette...",           PLACETEXT_IN,    BUTTON_KIND   },
+    { 396,  21,  26, 11, "Use Workbench",        PLACETEXT_RIGHT, CHECKBOX_KIND },
 
-    {  90,  40,  26, 11, "Terminal",             PLACETEXT_LEFT, CHECKBOX_KIND  },
-    { 120,  40, 340, 12, NULL,                   0, TEXT_KIND               },
-    { 468,  40, 128, 13, "Use Current",          PLACETEXT_IN, BUTTON_KIND    },
-    { 120,  57,  26, 11, "PETSCII Mode",         PLACETEXT_RIGHT, CHECKBOX_KIND },
-    { 270,  57,  26, 11, "Use XEM",              PLACETEXT_RIGHT, CHECKBOX_KIND },
-    { 370,  56, 110, 13, "XEM Library...",       PLACETEXT_IN, BUTTON_KIND    },
-    { 484,  56, 112, 13, "Display ID...",        PLACETEXT_IN, BUTTON_KIND    },
-    { 120,  73,  26, 11, "Raw Connection",       PLACETEXT_RIGHT, CHECKBOX_KIND },
-    { 270,  73,  26, 11, "Local Echoback",       PLACETEXT_RIGHT, CHECKBOX_KIND },
+    {  80,  42, 112, 13, "Terminal",             PLACETEXT_LEFT,  CYCLE_KIND    },
+    { 196,  42, 300, 13, NULL,                   0,               TEXT_KIND     },
+    { 500,  42, 112, 13, "Use Current",          PLACETEXT_IN,    BUTTON_KIND   },
+    {  80,  59,  26, 11, "PETSCII Mode",         PLACETEXT_RIGHT, CHECKBOX_KIND },
+    { 216,  59,  26, 11, "Use XEM",              PLACETEXT_RIGHT, CHECKBOX_KIND },
+    { 316,  58, 136, 13, "XEM Library...",       PLACETEXT_IN,    BUTTON_KIND   },
+    { 456,  58, 120, 13, "Display ID...",        PLACETEXT_IN,    BUTTON_KIND   },
+    {  80,  75,  26, 11, "Raw Connection",       PLACETEXT_RIGHT, CHECKBOX_KIND },
+    { 256,  75,  26, 11, "Local Echoback",       PLACETEXT_RIGHT, CHECKBOX_KIND },
 
-    {  90,  93,  26, 11, "Keyboard",             PLACETEXT_LEFT, CHECKBOX_KIND  },
-    { 120,  93, 340, 12, NULL,                   0, TEXT_KIND               },
-    { 468,  93, 128, 13, "Use Current",          PLACETEXT_IN, BUTTON_KIND    },
-    { 120, 110,  26, 11, "BS/DEL Swap",          PLACETEXT_RIGHT, CHECKBOX_KIND },
-    { 270, 110,  26, 11, "Return = CR + LF",     PLACETEXT_RIGHT, CHECKBOX_KIND },
-    { 468, 109, 128, 13, "Function Keys...",     PLACETEXT_IN, BUTTON_KIND    },
+    {  80,  97, 112, 13, "Keyboard",             PLACETEXT_LEFT,  CYCLE_KIND    },
+    { 196,  97, 300, 13, NULL,                   0,               TEXT_KIND     },
+    { 500,  97, 112, 13, "Use Current",          PLACETEXT_IN,    BUTTON_KIND   },
+    {  80, 114,  26, 11, "BS/DEL Swap",          PLACETEXT_RIGHT, CHECKBOX_KIND },
+    { 216, 114,  26, 11, "Return = CR + LF",     PLACETEXT_RIGHT, CHECKBOX_KIND },
+    { 396, 113, 144, 13, "Function Keys...",     PLACETEXT_IN,    BUTTON_KIND   },
 
-    {  90, 129,  26, 11, "Transfer",             PLACETEXT_LEFT, CHECKBOX_KIND  },
-    { 120, 129, 340, 12, NULL,                   0, TEXT_KIND               },
-    { 468, 129, 128, 13, "Use Current",          PLACETEXT_IN, BUTTON_KIND    },
-    { 120, 145, 110, 13, "Protocol...",          PLACETEXT_IN, BUTTON_KIND    },
-    { 234, 145, 150, 13, "Protocol Options...",  PLACETEXT_IN, BUTTON_KIND    },
+    {  80, 135, 112, 13, "Transfer",             PLACETEXT_LEFT,  CYCLE_KIND    },
+    { 196, 135, 300, 13, NULL,                   0,               TEXT_KIND     },
+    { 500, 135, 112, 13, "Use Current",          PLACETEXT_IN,    BUTTON_KIND   },
+    {  80, 151, 104, 13, "Protocol...",          PLACETEXT_IN,    BUTTON_KIND   },
+    { 188, 151, 168, 13, "Protocol Options...",  PLACETEXT_IN,    BUTTON_KIND   },
 
-    {   4, 166, 100, 13, "Ok",                   PLACETEXT_IN, BUTTON_KIND    },
-    { 496, 166, 100, 13, "Cancel",               PLACETEXT_IN, BUTTON_KIND    },
+    {   4, 170, 100, 13, "Ok",                   PLACETEXT_IN,    BUTTON_KIND   },
+    { 512, 170, 100, 13, "Cancel",               PLACETEXT_IN,    BUTTON_KIND   },
 };
+
+// The Override cycle gadget of each group: which settings the entry uses.
+static STRPTR overrideLabels[] = { (STRPTR)"Global", (STRPTR)"This Entry", NULL };
 
 static const ULONG groupOfOverride[4]  = { SITE_GROUP_SCREEN, SITE_GROUP_TERMINAL, SITE_GROUP_KEYBOARD, SITE_GROUP_TRANSFER };
 static const UWORD overrideGadget[4]   = { SG_SCREEN_OVR, SG_TERM_OVR, SG_KEY_OVR, SG_XFER_OVR };
@@ -1041,7 +1050,8 @@ static void RefreshSettingsWindow(const struct SiteSettings *work)
     SitePrefs_ApplyEntry(&shown, GlobalSettings(), work);
     for (g = 0; g < 4; g++)
     {
-        SetChecked(overrideGadget[g], (work->groups & groupOfOverride[g]) != 0);
+        GT_SetGadgetAttrs(settingsGadgets[overrideGadget[g]], settingsWnd, NULL,
+                          GTCY_Active, (work->groups & groupOfOverride[g]) ? 1 : 0, TAG_DONE);
         SitePrefs_GroupSummary(groupOfOverride[g], &shown, summary[g], sizeof(summary[g]));
         GT_SetGadgetAttrs(settingsGadgets[summaryGadget[g]], settingsWnd, NULL,
                           GTTX_Text, summary[g], TAG_DONE);
@@ -1109,7 +1119,7 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
     struct IntuiMessage *message;
     struct Gadget *gad;
     ULONG class;
-    UWORD i, ww, wh;
+    UWORD code, i, ww, wh;
     BOOL done = FALSE, ok = FALSE;
 
     work = *entry;
@@ -1138,7 +1148,8 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
         ng.ng_VisualInfo = visualInfos;
 
         tags[0] = TAG_DONE;
-        if (d->kind == TEXT_KIND) { tags[0] = GTTX_Border; tags[1] = TRUE; tags[2] = TAG_DONE; }
+        if (d->kind == TEXT_KIND)  { tags[0] = GTTX_Border; tags[1] = TRUE; tags[2] = TAG_DONE; }
+        if (d->kind == CYCLE_KIND) { tags[0] = GTCY_Labels; tags[1] = (ULONG)overrideLabels; tags[2] = TAG_DONE; }
         settingsGadgets[i] = g = CreateGadgetA(d->kind, g, &ng, (struct TagItem *)tags);
         if (!g) break;
     }
@@ -1148,7 +1159,7 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
         newWin.TopEdge     = (scr->Height - (wh + OffY + scr->WBorBottom)) / 2;
         newWin.Width       = ww + OffX + scr->WBorRight;
         newWin.Height      = wh + OffY + scr->WBorBottom;
-        newWin.IDCMPFlags  = BUTTONIDCMP|CHECKBOXIDCMP|TEXTIDCMP|IDCMP_CLOSEWINDOW|IDCMP_REFRESHWINDOW;
+        newWin.IDCMPFlags  = BUTTONIDCMP|CHECKBOXIDCMP|CYCLEIDCMP|TEXTIDCMP|IDCMP_CLOSEWINDOW|IDCMP_REFRESHWINDOW;
         newWin.Flags       = WFLG_DRAGBAR|WFLG_DEPTHGADGET|WFLG_CLOSEGADGET|WFLG_SMART_REFRESH|WFLG_ACTIVATE|WFLG_RMBTRAP;
         newWin.FirstGadget = settingsGList;
         newWin.Title       = (UBYTE *)title;
@@ -1168,6 +1179,7 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
             {
                 gad   = (struct Gadget *)message->IAddress;
                 class = message->Class;
+                code  = message->Code;
                 GT_ReplyIMsg(message);
 
                 if (class == IDCMP_CLOSEWINDOW) { done = TRUE; break; }
@@ -1186,8 +1198,8 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
                     ULONG group = groupOfOverride[gad->GadgetID == SG_SCREEN_OVR ? 0 :
                                                   gad->GadgetID == SG_TERM_OVR ? 1 :
                                                   gad->GadgetID == SG_KEY_OVR ? 2 : 3];
-                    if (IsChecked(gad->GadgetID)) OverrideGroup(&work, group);
-                    else                          work.groups &= ~group;
+                    if (code == 1) OverrideGroup(&work, group);     // "This Entry"
+                    else           work.groups &= ~group;           // "Global"
                     break;
                 }
                 case SG_SCREEN_CUR: UseCurrentForGroup(&work, SITE_GROUP_SCREEN, captureXem);   break;
@@ -1314,9 +1326,12 @@ static BOOL EditProfile(struct BookStruct *book, struct List *list)
     // truncated or foreign file means the entry connects with global settings.
     memset(&snapshot, 0, sizeof(snapshot));   // no stale macro from another entry
     editProfileGTags[EP_TAG_SETTINGS] = (unsigned long)(LoadEntrySettings(book->settingsId, &snapshot)
-                                         && snapshot.groups ? "Own (saved with this entry)" : "Global");
+                                         && snapshot.groups ? "This Entry (some groups)" : "Global");
     editProfileGTags[EP_TAG_COMMENT] = (unsigned long)book->comment;
     editProfileGTags[EP_TAG_LOGIN_MACRO] = (unsigned long)snapshot.loginMacro;
+    // Sent after connecting (SendLoginMacro); the codes it understands:
+    editProfileGTags[EP_TAG_MACRO_HELP] =
+        (unsigned long)"\\u Username \\p Password \\r Return \\d Wait 1 s";
 
     // Open the Edit Profile window
     if(OpenEditProfileWindow() == RETURN_OK)
@@ -1388,7 +1403,7 @@ editSettings:
                         {
                             settingsAction = SETTINGS_EDITED;
                             GT_SetGadgetAttrs(editProfileGadgets[GD_SETTINGS], editProfileWnd, NULL,
-                                              GTTX_Text, snapshot.groups ? "Own (saved on Ok)" : "Global",
+                                              GTTX_Text, snapshot.groups ? "This Entry (saved on Ok)" : "Global",
                                               TAG_DONE);
                         }
                         break;
