@@ -43,6 +43,7 @@ void ComputeFont( UWORD width, UWORD height );
 void CloseScrollBack(void);
 void OpenScrollBack(UWORD sel);
 void FunctionKeys(void);
+BOOL EditFunctionKeys(TEXT *keys, const char *title);
 void AddressBook(void);
 struct SiteSettings;
 BOOL LoadEntrySettings(ULONG id, struct SiteSettings *out);

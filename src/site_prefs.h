@@ -89,4 +89,9 @@ BOOL SitePrefs_Decode(struct SiteSettings *out, const UBYTE *buf, size_t len,
 size_t SitePrefs_NextMacroSegment(const char **cursor, const char *user, const char *pass,
                                   char *out, size_t max, BOOL *wait);
 
+/* An entry overriding the Keyboard group: its F1-F10 become live, the live
+ * (global) ones are kept in aside. Returns FALSE (nothing moved) otherwise. */
+BOOL SitePrefs_SwapInKeys(TEXT *live, TEXT *aside, const struct SiteSettings *entry);
+void SitePrefs_SwapOutKeys(TEXT *live, const TEXT *aside);
+
 #endif /* SITE_PREFS_H */

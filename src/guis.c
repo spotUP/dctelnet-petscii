@@ -1368,7 +1368,7 @@ static ULONG fKeysGTags[] = {
     (GT_Underscore), '_', (TAG_DONE)
 };
 
-static int OpenFKeysWindow( void )
+static int OpenFKeysWindow( const char *title )
 {
     struct Gadget    *g;
     UWORD        ww, wh;
@@ -1409,7 +1409,7 @@ static int OpenFKeysWindow( void )
                 WA_IDCMP,    CYCLEIDCMP|STRINGIDCMP|BUTTONIDCMP|IDCMP_CLOSEWINDOW|IDCMP_REFRESHWINDOW|IDCMP_VANILLAKEY,
                 WA_Flags,    WFLG_DRAGBAR|WFLG_DEPTHGADGET|WFLG_CLOSEGADGET|WFLG_SMART_REFRESH|WFLG_ACTIVATE|WFLG_RMBTRAP,
                 WA_Gadgets,    fKeysGList,
-                WA_Title,    "Function Keys",
+                WA_Title,    title,
                 WA_CustomScreen,scr,
                 TAG_DONE )))
     return( 4L );
@@ -1436,7 +1436,13 @@ static int OpenFKeysWindow( void )
  *
  * @note The function updates the in-memory function key table before writing it to disk.
  */
-void FunctionKeys(void)
+/**
+ * @brief Edit a set of F1-F10 macros (the global ones, the live session's, or
+ *        an Address Book entry's) in the Function Keys window.
+ *
+ * @return TRUE when the user saved: `keys` then holds the edited macros.
+ */
+BOOL EditFunctionKeys(TEXT *keys, const char *title)
 {
     struct IntuiMessage *message;
     struct Gadget *gad;
@@ -1448,10 +1454,10 @@ void FunctionKeys(void)
 
     // Initialize gadget fields with current settings:
     for (i = 0; i < F_KEY_COUNT; i++)
-        fKeysGTags[1 + i * 5] = (ULONG)&fKeys[i * F_KEY_SIZE];
+        fKeysGTags[1 + i * 5] = (ULONG)&keys[i * F_KEY_SIZE];
 
     // Open the Functions Keys window
-    if(OpenFKeysWindow() == RETURN_OK)
+    if(OpenFKeysWindow(title) == RETURN_OK)
     {
         while(!subdone)
         {
@@ -1495,20 +1501,42 @@ void FunctionKeys(void)
         }
     }
 
-    // Save gadget values to the Prefs file if user pressed OK:
+    // Copy the gadget values into keys if the user pressed Save:
     if(save)
     {
-        register BPTR fh;
-        LONG l;
-
         for (i=0 ; i < F_KEY_COUNT ; i++)
         {
             // The gadget buffer is expected to be limited by "(GTST_MaxChars), F_KEY_SIZE-1",
             // but this provides additional protection against unexpected gadget behavior.
-            strlcpy(&fKeys[i * F_KEY_SIZE],
+            strlcpy(&keys[i * F_KEY_SIZE],
                     ((struct StringInfo *)fKeysGadgets[i]->SpecialInfo)->Buffer,
                     F_KEY_SIZE);
         }
+    }
+
+    if (fKeysWnd)   { CloseWindow(fKeysWnd);   fKeysWnd   = NULL; }
+    if (fKeysGList) { FreeGadgets(fKeysGList); fKeysGList = NULL; }
+    return save;
+}
+
+/**
+ * @brief Settings > Function Keys. Edits the keys in use; they are written to
+ *        DCTelnet.Keys only when they are the global ones. While connected to an
+ *        entry that overrides the Keyboard group the edit is session-only, like
+ *        every other settings change in an entry session.
+ */
+void FunctionKeys(void)
+{
+    if (SessionOverridesKeyboard())
+    {
+        EditFunctionKeys(fKeys, "Function Keys (this connection only)");
+        return;
+    }
+
+    if (EditFunctionKeys(fKeys, "Function Keys"))
+    {
+        register BPTR fh;
+        LONG l;
 
         fh = Open(keysFilename, MODE_NEWFILE);
         l = 0;
@@ -1523,9 +1551,6 @@ void FunctionKeys(void)
             SimpleReq("ERROR: Failed to save Function keys settings!");
         }
     }
-
-    if (fKeysWnd)   { CloseWindow(fKeysWnd);   fKeysWnd   = NULL; }
-    if (fKeysGList) { FreeGadgets(fKeysGList); fKeysGList = NULL; }
 }
 
 

@@ -219,7 +219,28 @@ static void test_login_macro_expands_codes(void) {
     assert(out[0] == 0);
 }
 
+/* An entry that overrides the Keyboard group brings its own F1-F10 for the
+ * connection; the global keys are kept aside and come back afterwards. */
+static void test_entry_function_keys_swap_in_and_back(void) {
+    static TEXT live[SITE_FKEY_BYTES], aside[SITE_FKEY_BYTES];
+    static struct SiteSettings entry;
+
+    strcpy((char *)live, "global F1");
+    strcpy((char *)entry.fKeys, "entry F1");
+
+    entry.groups = SITE_GROUP_SCREEN;               /* Keyboard not overridden */
+    assert(!SitePrefs_SwapInKeys(live, aside, &entry));
+    assert(strcmp((char *)live, "global F1") == 0);
+
+    entry.groups = SITE_GROUP_KEYBOARD;
+    assert(SitePrefs_SwapInKeys(live, aside, &entry));
+    assert(strcmp((char *)live, "entry F1") == 0);
+    SitePrefs_SwapOutKeys(live, aside);
+    assert(strcmp((char *)live, "global F1") == 0);
+}
+
 int main(void) {
+    test_entry_function_keys_swap_in_and_back();
     test_login_macro_expands_codes();
     test_sidecar_round_trip_and_rejects();
     test_apply_takes_only_overridden_groups();

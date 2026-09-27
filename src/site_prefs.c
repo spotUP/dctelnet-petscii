@@ -187,3 +187,17 @@ size_t SitePrefs_NextMacroSegment(const char **cursor, const char *user, const c
     *cursor = c;
     return len;
 }
+
+BOOL SitePrefs_SwapInKeys(TEXT *live, TEXT *aside, const struct SiteSettings *entry)
+{
+    if (!(entry->groups & SITE_GROUP_KEYBOARD))
+        return FALSE;
+    memcpy(aside, live, SITE_FKEY_BYTES);
+    memcpy(live, entry->fKeys, SITE_FKEY_BYTES);
+    return TRUE;
+}
+
+void SitePrefs_SwapOutKeys(TEXT *live, const TEXT *aside)
+{
+    memcpy(live, aside, SITE_FKEY_BYTES);
+}
