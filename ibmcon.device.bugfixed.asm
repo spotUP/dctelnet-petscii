@@ -475,9 +475,9 @@ DevInit:                                ; was AJL_0_20
         move.l  A1,D0
         lea     LIB_VERSION(A5),A3
         move.w  D0,(A3)+                ; lib_Version  = 1
-        lea     4,A1
+        lea     5,A1                    ; 1.5: revision 5 (pen table)
         move.l  A1,D0
-        move.w  D0,(A3)+                ; lib_Revision = 4
+        move.w  D0,(A3)+                ; lib_Revision = 5
         move.l  #DevIdString,(A3)+      ; lib_IdString
         lea     dev_RelocTab(A5),A3
         clr.l   (A3)+                   ; dev_RelocTab = NULL
@@ -3831,7 +3831,7 @@ DevName:                                ; was AL_2_1C
         dc.b    "ibmcon.device",0,0
         dc.b    0
 DevIdString:                            ; was AL_2_2C
-        dc.b    "ibmcon.device 1.4",0,0
+        dc.b    "ibmcon.device 1.5",0,0
         dc.b    0
 
 ;=====================================================================
