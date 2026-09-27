@@ -26,6 +26,8 @@
 #include "site_prefs.h"
 #include "Xem_wrapper.h"                 // SaveXemOptions()
 #include "listsel.h"
+#include "textedit.h"
+#include <intuition/sghooks.h>
 
 struct BookStruct
 {
@@ -877,6 +879,63 @@ static ULONG editProfileGTags[] = {
 #define EP_TAG_LOGIN_MACRO 65
 #define EP_TAG_MACRO_HELP  72
 
+/*
+ * A field entered with Tab is replaced by what is typed (string edit hook):
+ * GadTools string gadgets have no select-all, and typing into a prefilled
+ * field appended to the old value. The first key in a field other than the
+ * one last typed or clicked in replaces its value; tabbing through keeps
+ * it, and a click positions the cursor for editing as before.
+ */
+static struct Gadget *lastEditedField;
+
+static ULONG __saveds ReplaceOnFirstKey(__reg("a0") struct Hook *hook,
+                                        __reg("a2") struct SGWork *sgw,
+                                        __reg("a1") ULONG *msg)
+{
+    BOOL fresh;
+
+    if (*msg == SGH_CLICK)
+    {
+        lastEditedField = sgw->Gadget;      // clicked in: edit where the cursor is
+        return ~0UL;
+    }
+    if (*msg != SGH_KEY)
+        return 0;
+    fresh = sgw->Gadget != lastEditedField;
+    lastEditedField = sgw->Gadget;
+    if (fresh && (sgw->EditOp == EO_INSERTCHAR || sgw->EditOp == EO_REPLACECHAR))
+    {
+        TextEdit_FirstKey((char *)sgw->WorkBuffer, &sgw->BufferPos, &sgw->NumChars, TRUE);
+        if (sgw->StringInfo && (sgw->Gadget->Activation & GACT_LONGINT))
+            sgw->LongInt = (sgw->WorkBuffer[0] >= '0' && sgw->WorkBuffer[0] <= '9')
+                         ? sgw->WorkBuffer[0] - '0' : 0;
+        sgw->Actions |= SGA_REDISPLAY;
+    }
+    return ~0UL;
+}
+
+static struct Hook replaceOnFirstKey = { { NULL, NULL }, (HOOKFUNC)ReplaceOnFirstKey, NULL, NULL };
+
+// Put the hook on every string and integer gadget of a window's gadgets.
+static void InstallReplaceOnFirstKey(struct Gadget **gads, UWORD count)
+{
+    UWORD i;
+
+    lastEditedField = NULL;
+    for (i = 0; i < count; i++)
+    {
+        struct Gadget *g = gads[i];
+
+        if (g && (g->GadgetType & GTYP_GTYPEMASK) == GTYP_STRGADGET)
+        {
+            struct StringInfo *si = (struct StringInfo *)g->SpecialInfo;
+
+            if (si && si->Extension)
+                si->Extension->EditHook = &replaceOnFirstKey;
+        }
+    }
+}
+
 // Draw the Edit Address Book Profile window
 static int OpenEditProfileWindow( void )
 {
@@ -893,6 +952,7 @@ static int OpenEditProfileWindow( void )
         return( 1L );
 
     if(MakeGadgets(editProfileNGad, editProfileGadgets, editProfileGTags, g, editProfileGTypes, editProfile_CNT) != 0) return( 2L );
+    InstallReplaceOnFirstKey(editProfileGadgets, editProfile_CNT);
 
     x = ww + OffX + scr->WBorRight;
     y = wh + OffY + scr->WBorBottom;
