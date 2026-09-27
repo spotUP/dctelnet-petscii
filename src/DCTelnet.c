@@ -38,6 +38,9 @@ static char MainWindowTitle[] =
 #include <graphics/videocontrol.h>      // VTAG_BORDERBLANK_SET
 #include <proto/graphics.h>           // Move(), SetAPen(), Text(), SetFont(), Draw()
 #include <proto/layers.h>             // InstallLayerInfoHook()
+// cybergraphics: vbcc ships the inline calls but not clib/cybergraphics_protos.h
+extern struct Library *CyberGfxBase;
+#include <inline/cybergraphics_protos.h> // ReadPixelArray(), WritePixelArray()
 #include <proto/gadtools.h>           // GT_GetIMsg(), GT_ReplyIMsg()...
 #include <proto/diskfont.h>           // OpenDiskFont()
 #include <proto/utility.h>            // GetTagData()
@@ -167,6 +170,7 @@ static void GetWindowMsg(struct Window *wwin);
 static void SendMisc(char *str, long len);
 static void ReopenTerminal(void);
 static void OpenAnsiFont(void);
+static void RenewWorkbenchPens(void);
 static void ResetTelnetContext(void);
 static void ResetZmodemContext(void);
 static void SetLocalEchoBack(BOOL wantedState);
@@ -178,6 +182,7 @@ struct GfxBase *GfxBase;
 struct Library *KeymapBase, *GadToolsBase, *AslBase, *SocketBase;
 struct Library *DiskfontBase, *IconBase, *WorkbenchBase, *UtilityBase;
 struct Library *LayersBase;     // V39, optional: the own screen's black background
+struct Library *CyberGfxBase;   // optional: recolours a true-colour terminal live
 
 struct Window *win, *scrollbackWin, *toolBarWin;
 static struct Window *packetWin;
@@ -1188,6 +1193,44 @@ static void LoadAnsiPalette(struct PrefsStruct *target)
  * Workbench on 16 exclusive pens borrowed for the preview (the shared
  * pens the terminal uses are never recoloured) and given back.
  */
+#define RECTFMT_ARGB 2          // cybergraphics: 4 bytes per pixel, 0xAARRGGBB
+#define RECOLOUR_STRIP 16       // rows read and written at a time
+
+// TRUE when the terminal's pixels hold colours rather than pen numbers (an
+// RTG screen deeper than 8 bits): recolouring a pen then changes nothing
+// already drawn, and RecolourTerminal() rewrites the pixels instead.
+static BOOL TerminalIsTrueColour(void)
+{
+    return CyberGfxBase && win && AppScreenDepth(scr) > 8;
+}
+
+// Every pixel of the terminal in colour from (0x00RRGGBB) becomes to.
+static void RecolourTerminal(ULONG from, ULONG to)
+{
+    BOOL gzz = (win->Flags & WFLG_GIMMEZEROZERO) != 0;
+    UWORD w = gzz ? win->GZZWidth : win->Width;
+    UWORD h = gzz ? win->GZZHeight : win->Height;
+    ULONG *px = AllocVec((ULONG)w * RECOLOUR_STRIP * 4, MEMF_ANY);
+    UWORD y, n;
+    ULONG i;
+
+    if (!px || from == to)
+    {
+        if (px) FreeVec(px);
+        return;
+    }
+    for (y = 0; y < h; y += RECOLOUR_STRIP)
+    {
+        n = (UWORD)(h - y < RECOLOUR_STRIP ? h - y : RECOLOUR_STRIP);
+        ReadPixelArray(px, 0, 0, (UWORD)(w * 4), win->RPort, 0, y, w, n, RECTFMT_ARGB);
+        for (i = 0; i < (ULONG)w * n; i++)
+            if ((px[i] & 0xFFFFFF) == from)
+                px[i] = (px[i] & 0xFF000000) | to;
+        WritePixelArray(px, 0, 0, (UWORD)(w * 4), win->RPort, 0, y, w, n, RECTFMT_ARGB);
+    }
+    FreeVec(px);
+}
+
 enum { PE_PALETTE, PE_NAME, PE_RED, PE_GREEN, PE_BLUE, PE_USE, PE_DEFAULT, PE_CANCEL, PE_COUNT };
 
 static UBYTE editPens[16];          // pen of each ANSI colour in the editor
@@ -1238,6 +1281,9 @@ BOOL EditPalette(struct PrefsStruct *target)
     WORD fh = font->tf_YSize, cw = font->tf_XSize;
     WORD x0 = cw, width = 34 * cw, labelW = 7 * cw, levelW = 5 * cw, y;
     BOOL v39 = GfxBase->LibNode.lib_Version >= 39, done = FALSE, kept = FALSE;
+    BOOL live = target == &prefs && TerminalIsTrueColour();  // recolour the terminal's pixels
+    BOOL recolour = FALSE;
+    static ULONG shown[16];     // the colours the terminal's pixels have now
     int sel = 0, i;
 
     if (!v39 && isRunningOnWB)
@@ -1247,6 +1293,7 @@ BOOL EditPalette(struct PrefsStruct *target)
     }
     work = *target;
     Palette_EnsureAnsi(&work);
+    memcpy(shown, work.ansiRGB, sizeof(shown));
 
     // The pens the editor shows the colours on.
     editLive = TRUE;
@@ -1366,10 +1413,17 @@ BOOL EditPalette(struct PrefsStruct *target)
                         work.ansiRGB[sel] = Palette_WithChannel(work.ansiRGB[sel], gad->GadgetID - PE_RED, (UBYTE)code);
                         ShowEditedColour(sel, work.ansiRGB[sel]);
                         DrawEditPreview(pw, gads[PE_PALETTE], sel);
+                        recolour = live;        // once the queued moves are read
                         break;
                     case PE_DEFAULT:
                         Palette_Default(work.ansiRGB);
                         for (i = 0; i < 16; i++) ShowEditedColour(i, work.ansiRGB[i]);
+                        for (i = 0; live && i < 16; i++)
+                            if (Palette_SafeRecolour(shown, i, work.ansiRGB[i]))
+                            {
+                                RecolourTerminal(shown[i], work.ansiRGB[i]);
+                                shown[i] = work.ansiRGB[i];
+                            }
                         ShowSelectedColour(pw, gads, work.ansiRGB, sel);     // redraws the preview
                         break;
                     case PE_USE:
@@ -1384,10 +1438,25 @@ BOOL EditPalette(struct PrefsStruct *target)
                     }
                 }
             }
+            // A drag queues many moves: the pixels follow once they are read.
+            if (recolour && Palette_SafeRecolour(shown, sel, work.ansiRGB[sel]))
+            {
+                RecolourTerminal(shown[sel], work.ansiRGB[sel]);
+                shown[sel] = work.ansiRGB[sel];
+            }
+            recolour = FALSE;
         }
         CloseWindow(pw);
     }
     FreeGadgets(glist);
+
+    // Not kept: the terminal's pixels get the colours in use back.
+    for (i = 0; live && !kept && i < 16; i++)
+        if (Palette_SafeRecolour(shown, i, prefs.ansiRGB[i]))
+        {
+            RecolourTerminal(shown[i], prefs.ansiRGB[i]);
+            shown[i] = prefs.ansiRGB[i];
+        }
 
     // Back to the live colours: the borrowed pens go back, and on the own
     // screen the terminal's pens show the settings in use.
@@ -1405,9 +1474,10 @@ static void ChoosePalette(void)
 
     before = prefs;
     // On the own screen the terminal already shows the new colours; on the
-    // Workbench the console takes new shared pens for them.
+    // Workbench the running console takes new shared pens for them (a
+    // reopen would clear it).
     if (EditPalette(&prefs) && isRunningOnWB)
-        RequestDisplayReopen(&before);
+        RenewWorkbenchPens();
 }
 
 
@@ -2130,6 +2200,7 @@ int main(int argc, char *argv[])
     }
 
     LayersBase = OpenLibrary("layers.library", 39);
+    CyberGfxBase = OpenLibrary("cybergraphics.library", 40);   // Picasso96 / CyberGraphX
 
     UtilityBase = OpenLibrary("utility.library", 0);
     if (UtilityBase == NULL)
@@ -2423,6 +2494,7 @@ clean_exit:
     if (WorkbenchBase) CloseLibrary(WorkbenchBase);
     if (UtilityBase)   CloseLibrary(UtilityBase);
     if (LayersBase)    CloseLibrary(LayersBase);
+    if (CyberGfxBase)  CloseLibrary(CyberGfxBase);
     if (GadToolsBase)  CloseLibrary(GadToolsBase);
     if (ReqToolsBase)  CloseLibrary((struct Library *) ReqToolsBase);
     if (AslBase)       CloseLibrary(AslBase);
@@ -3681,6 +3753,70 @@ static void ClosePetsciiFonts(void)
  * @brief Open the console device (ibmcon.device, also on the Workbench) on
  *        the main window, with the RastPort's current font.
  */
+// The ANSI colours on the Workbench: 16 shared pens of exactly their
+// colours from its palette (V39), given back with ReleaseWorkbenchPens().
+static void ObtainWorkbenchPens(void)
+{
+    UWORD i;
+
+    if (!isRunningOnWB || GfxBase->LibNode.lib_Version < 39)
+        return;
+    for (i = 0; i < 16; i++)
+    {
+        ULONG c = prefs.ansiRGB[i];
+        ULONG r = ((c >> 16) & 0xFF) * 0x01010101UL, g = ((c >> 8) & 0xFF) * 0x01010101UL,
+              bl = (c & 0xFF) * 0x01010101UL;
+        LONG pen = ObtainBestPen(scr->ViewPort.ColorMap, r, g, bl,
+                                 OBP_Precision, PRECISION_EXACT, TAG_DONE);
+
+        // No pen to share (-1): the nearest colour already there, which
+        // is not ours to release. -1 cast to UBYTE was pen 255.
+        wbPenOwned[i] = pen >= 0;
+        if (pen < 0)
+            pen = FindColor(scr->ViewPort.ColorMap, r, g, bl, -1);
+        ansiPens[i] = (UBYTE)pen;
+    }
+    wbPensObtained = TRUE;
+    ansiOwnPens = TRUE;
+}
+
+static void ReleaseWorkbenchPens(void)
+{
+    UWORD i;
+
+    if (!wbPensObtained)
+        return;
+    for (i = 0; i < 16; i++)
+        if (wbPenOwned[i])
+            ReleasePen(scr->ViewPort.ColorMap, ansiPens[i]);
+    wbPensObtained = FALSE;
+    ansiOwnPens = FALSE;
+}
+
+// ibmcon 1.5: the ANSI colours' own pens. An older ibmcon answers
+// IOERR_NOCMD and keeps pens 0-15. Also sent to an open console.
+static void SendPenTable(void)
+{
+    if (!ansiOwnPens)
+        return;
+    writeConsoleReq->io_Command = IBMCMD_SETPENS;
+    writeConsoleReq->io_Data    = ansiPens;
+    writeConsoleReq->io_Length  = sizeof(ansiPens);
+    DoIO((struct IORequest *)writeConsoleReq);
+    penTableError = writeConsoleReq->io_Error;
+}
+
+// New ANSI colours on the Workbench without reopening the console (which
+// would clear it): new shared pens, handed to the running ibmcon.
+static void RenewWorkbenchPens(void)
+{
+    if (!isConDeviceOpened || !wbPensObtained)
+        return;
+    ReleaseWorkbenchPens();
+    ObtainWorkbenchPens();
+    SendPenTable();
+}
+
 static BOOL OpenConsoleDevice(void)
 {
     #ifdef _DEBUG
@@ -3722,28 +3858,7 @@ static BOOL OpenConsoleDevice(void)
 
     // On the Workbench the ANSI colours take 16 shared pens of exactly their
     // colours from its palette (V39); they go back in CloseConsoleDevice().
-    if (isRunningOnWB && GfxBase->LibNode.lib_Version >= 39)
-    {
-        UWORD i;
-
-        for (i = 0; i < 16; i++)
-        {
-            ULONG c = prefs.ansiRGB[i];
-            ULONG r = ((c >> 16) & 0xFF) * 0x01010101UL, g = ((c >> 8) & 0xFF) * 0x01010101UL,
-                  bl = (c & 0xFF) * 0x01010101UL;
-            LONG pen = ObtainBestPen(scr->ViewPort.ColorMap, r, g, bl,
-                                     OBP_Precision, PRECISION_EXACT, TAG_DONE);
-
-            // No pen to share (-1): the nearest colour already there, which
-            // is not ours to release. -1 cast to UBYTE was pen 255.
-            wbPenOwned[i] = pen >= 0;
-            if (pen < 0)
-                pen = FindColor(scr->ViewPort.ColorMap, r, g, bl, -1);
-            ansiPens[i] = (UBYTE)pen;
-        }
-        wbPensObtained = TRUE;
-        ansiOwnPens = TRUE;
-    }
+    ObtainWorkbenchPens();
 
     //the window that is used by the console device for output:
     writeConsoleReq->io_Data = win;
@@ -3773,16 +3888,7 @@ static BOOL OpenConsoleDevice(void)
         isConDeviceOpened = TRUE;
         LimitTerminalWidth();       // the font is final now
 
-        // ibmcon 1.5: the ANSI colours' own pens. An older ibmcon answers
-        // IOERR_NOCMD and keeps pens 0-15.
-        if (ansiOwnPens)
-        {
-            writeConsoleReq->io_Command = IBMCMD_SETPENS;
-            writeConsoleReq->io_Data    = ansiPens;
-            writeConsoleReq->io_Length  = sizeof(ansiPens);
-            DoIO((struct IORequest *)writeConsoleReq);
-            penTableError = writeConsoleReq->io_Error;
-        }
+        SendPenTable();
     }
     else
     {
@@ -3801,16 +3907,7 @@ static BOOL OpenConsoleDevice(void)
  */
 static void CloseConsoleDevice(void)
 {
-    if (wbPensObtained)
-    {
-        UWORD i;
-
-        for (i = 0; i < 16; i++)
-            if (wbPenOwned[i])
-                ReleasePen(scr->ViewPort.ColorMap, ansiPens[i]);
-        wbPensObtained = FALSE;
-        ansiOwnPens = FALSE;
-    }
+    ReleaseWorkbenchPens();
 
     // https://amigadev.elowar.com/read/ADCD_2.1/Devices_Manual_guide/node0190.html
     if (isConDeviceOpened)

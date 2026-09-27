@@ -35,4 +35,10 @@ const char *Palette_Name(int ansiIndex);
 UBYTE Palette_Channel(ULONG rgb, int channel);
 ULONG Palette_WithChannel(ULONG rgb, int channel, UBYTE value);
 
+/* On a true-colour screen the terminal's pixels hold colours, so the
+ * palette editor recolours them: every pixel of shown[sel] becomes newRGB.
+ * Safe only when no other ANSI colour shares either value -- else the two
+ * colours' pixels would merge for good. */
+BOOL Palette_SafeRecolour(const ULONG shown[16], int sel, ULONG newRGB);
+
 #endif /* PALETTE_H */

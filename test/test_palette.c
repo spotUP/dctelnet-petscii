@@ -71,7 +71,21 @@ static void test_palette_editor_helpers(void) {
     assert(Palette_WithChannel(0x123456, 0, 0x00) == 0x003456);
 }
 
+/* Dragging red's green channel through 0x55 passes brown (0xAA5500): the
+ * red pixels recoloured to brown would be one colour with the brown ones
+ * for good. Such a step leaves the pixels alone. */
+static void test_live_recolour_never_merges_two_colours(void) {
+    ULONG shown[16];
+
+    Palette_Default(shown);
+    assert(Palette_SafeRecolour(shown, 1, 0xAA2200));
+    assert(!Palette_SafeRecolour(shown, 1, 0xAA5500));     /* brown's colour */
+    shown[2] = shown[1];                                     /* two colours already equal */
+    assert(!Palette_SafeRecolour(shown, 1, 0x123456));
+}
+
 int main(void) {
+    test_live_recolour_never_merges_two_colours();
     test_palette_editor_helpers();
     test_rgb4_in_ibmcon_order_converts_to_ansi_rgb32();
     test_ansi_rgb32_back_to_rgb4();

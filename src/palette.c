@@ -112,3 +112,13 @@ ULONG Palette_WithChannel(ULONG rgb, int channel, UBYTE value)
 
     return (rgb & ~(0xFFUL << shift)) | ((ULONG)value << shift);
 }
+
+BOOL Palette_SafeRecolour(const ULONG shown[16], int sel, ULONG newRGB)
+{
+    int i;
+
+    for (i = 0; i < 16; i++)
+        if (i != sel && (shown[i] == shown[sel] || shown[i] == newRGB))
+            return FALSE;
+    return TRUE;
+}
