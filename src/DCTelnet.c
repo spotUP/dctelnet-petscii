@@ -37,6 +37,7 @@ static char MainWindowTitle[] =
 #include <proto/intuition.h>          // OpenWindow(),CloseWindow(), OnMenu(), OffMenu()...
 #include <graphics/videocontrol.h>      // VTAG_BORDERBLANK_SET
 #include <proto/graphics.h>           // Move(), SetAPen(), Text(), SetFont(), Draw()
+#include <proto/layers.h>             // InstallLayerInfoHook()
 #include <proto/gadtools.h>           // GT_GetIMsg(), GT_ReplyIMsg()...
 #include <proto/diskfont.h>           // OpenDiskFont()
 #include <proto/utility.h>            // GetTagData()
@@ -173,6 +174,7 @@ struct IntuitionBase *IntuitionBase;
 struct GfxBase *GfxBase;
 struct Library *KeymapBase, *GadToolsBase, *AslBase, *SocketBase;
 struct Library *DiskfontBase, *IconBase, *WorkbenchBase, *UtilityBase;
+struct Library *LayersBase;     // V39, optional: the own screen's black background
 
 struct Window *win, *scrollbackWin, *toolBarWin;
 static struct Window *packetWin;
@@ -986,27 +988,47 @@ static void TerminalGrid(UWORD *cols, UWORD *rows)
 }
 
 /**
- * @brief Keep the Workbench window at most 80 text columns wide (40 in
- *        PETSCII Mode): BBS art is drawn for exactly that width and wraps at
- *        its edge. A window already wider is shrunk first; the limit itself
- *        takes hold on the IDCMP_NEWSIZE that follows, because WindowLimits()
- *        ignores a maximum below the current width.
+ * @brief Keep the terminal at most 80 text columns wide (40 in PETSCII
+ *        Mode): BBS art is drawn for exactly that width and wraps at its
+ *        edge. A Workbench window stops there (WindowLimits); on DCTelnet's
+ *        own screen the window is that wide and centred, the screen's
+ *        background around it ANSI black (see OpenAppWindow). Called once the
+ *        console's font is final and after every Workbench resize.
  */
 static void LimitTerminalWidth(void)
 {
     struct TextFont *cell;
-    UWORD columns, maxWidth;
+    UWORD columns, maxWidth, width, left;
+    int wait;
 
-    if (!isRunningOnWB || !win)
+    if (!win)
         return;
     cell = win->RPort->Font;
     columns = (cell == petsciiFont || cell == petsciiFontLower)
             ? SCREENFONT_PETSCII_COLUMNS : SCREENFONT_ANSI_COLUMNS;
     maxWidth = ScreenFont_MaxWindowWidth(columns, cell->tf_XSize,
                                          (UWORD)(win->BorderLeft + win->BorderRight));
-    if (win->Width > maxWidth)
-        ChangeWindowBox(win, win->LeftEdge, win->TopEdge, maxWidth, win->Height);
+    if (isRunningOnWB)
+    {
+        width = win->Width > maxWidth ? maxWidth : win->Width;
+        left  = win->LeftEdge;
+    }
     else
+    {
+        width = maxWidth > scr->Width ? scr->Width : maxWidth;
+        left  = (UWORD)((scr->Width - width) / 2);
+    }
+    if (win->Width != width || win->LeftEdge != left)
+    {
+        ChangeWindowBox(win, left, win->TopEdge, width, win->Height);
+        // Intuition applies it asynchronously: wait, so the console measures
+        // the new width before the next write (at most a second).
+        for (wait = 0; wait < 50 && (win->Width != width || win->LeftEdge != left); wait++)
+            Delay(1);
+    }
+    // WindowLimits() ignores a maximum below the current width: after the
+    // shrink above (or on the IDCMP_NEWSIZE that follows) it takes.
+    if (isRunningOnWB)
         WindowLimits(win, 0, 0, maxWidth, 0);
 }
 
@@ -1823,6 +1845,8 @@ int main(int argc, char *argv[])
         goto clean_exit;
     }
 
+    LayersBase = OpenLibrary("layers.library", 39);
+
     UtilityBase = OpenLibrary("utility.library", 0);
     if (UtilityBase == NULL)
     {
@@ -2107,6 +2131,7 @@ clean_exit:
     if (DiskfontBase)  CloseLibrary(DiskfontBase);
     if (WorkbenchBase) CloseLibrary(WorkbenchBase);
     if (UtilityBase)   CloseLibrary(UtilityBase);
+    if (LayersBase)    CloseLibrary(LayersBase);
     if (GadToolsBase)  CloseLibrary(GadToolsBase);
     if (ReqToolsBase)  CloseLibrary((struct Library *) ReqToolsBase);
     if (AslBase)       CloseLibrary(AslBase);
@@ -3772,6 +3797,12 @@ void OpenAppWindow(void)
         newWin.LeftEdge = 0;
         newWin.Title = 0;
         newWin.Width = scr->Width;
+
+        // The terminal window is 80 columns wide and centred
+        // (LimitTerminalWidth): the screen around it is terminal background,
+        // ANSI black, not the UI's pen 0 (grey on 32+ colours).
+        if (LayersBase)
+            InstallLayerInfoHook(&scr->LayerInfo, &terminalBackFill);
 
         if(prefs.flags & FLAG_PACKET_WINDOW)    // Packet
         {
