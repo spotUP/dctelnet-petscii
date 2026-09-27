@@ -23,6 +23,7 @@
 #include "guis.h"
 #include "requesters.h"
 #include "utils.h"
+#include "shipped.h"
 
 #define PATHLEN 256     // From third_party\Xpr\XprZmodem.h
 
@@ -873,7 +874,7 @@ long __SAVE_DS__ xpr_squery(void)
 
 static char ProtoStart(char *library, char *firstfile)
 {
-    XProtocolBase = OpenLibrary(library, 0);
+    XProtocolBase = OpenNewestLibrary(library, 0);
     if(!XProtocolBase)
     {
         LocalFmt("\r\n›0;31mERROR: ›mCould not open transfer library: %s\r\n", library);
@@ -909,7 +910,7 @@ static char ProtoStart(char *library, char *firstfile)
 /* TODO MAKE A CLEAN FUNCTION NOT REDUNDANT WITH ProtoStart() */
 void XferOptions(char *library)
 {
-    XProtocolBase = OpenLibrary(library, 0);
+    XProtocolBase = OpenNewestLibrary(library, 0);
     if(!XProtocolBase)
     {
         LocalFmt("\r\n›0;31mERROR: ›mCould not open transfer library: %s\r\n", library);

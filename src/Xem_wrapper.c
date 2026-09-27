@@ -20,6 +20,7 @@
 #include "DCTelnet.h"                 // win, scr, ansiFont, prefs.displaydriver, buf
 #include "Xfer.h"                     // xpr_sread(), xpr_swrite(), xpr_sflush(), xpr_options()
 #include "requesters.h"
+#include "shipped.h"
 
 struct Library *XEmulatorBase;
 struct XEM_IO *xemIO;
@@ -115,7 +116,7 @@ BOOL InitializeXemLibrary(void)
         goto clean_and_return;
     }
 
-    XEmulatorBase = OpenLibrary(prefs.displaydriver, 0);
+    XEmulatorBase = OpenNewestLibrary(prefs.displaydriver, 0);
     if (XEmulatorBase == NULL)
     {
         InfoReq(isRunningOnWB ? NULL : win, "Failed to open XEM library: %s", prefs.displaydriver);

@@ -53,6 +53,8 @@ static char MainWindowTitle[] =
 #include "petscii_keymap.h"
 #include "site_prefs.h"
 #include "screenfont.h"
+#include "progdir.h"
+#include "shipped.h"
 #ifdef __VBCC__
     #pragma popwarn
 #endif
@@ -197,6 +199,7 @@ static BOOL connectionDisplay = FALSE;   // a connection is being prepared or is
 // (prefs.win_*) is only what Snapshot Windows stored.
 static struct IBox wbWindowBox;
 static BOOL wbWindowBoxValid = FALSE;
+static const char *consoleFrom = "the system";   // where ibmcon.device came from
 static BOOL displayIsPetscii = FALSE;    // the display was opened for PETSCII
 #define PETSCII_SESSION() (connectionDisplay && (prefs.flags & FLAG_PETSCII_MODE))
 static BOOL isConDeviceOpened = FALSE;
@@ -890,7 +893,7 @@ static BOOL InitializeReqToolsLib(ULONG reqtoolsTags[5])
     }
     else // ReqTools needs to be loaded now.
     {
-        ReqToolsBase = (struct ReqToolsBase *)OpenLibrary (REQTOOLSNAME, 0);
+        ReqToolsBase = (struct ReqToolsBase *)OpenNewestLibrary(REQTOOLSNAME, 0);
 
         if (ReqToolsBase)
         {
@@ -3405,14 +3408,14 @@ static struct TextFont *OpenBundledFont(STRPTR name, STRPTR progdirPath, UWORD y
     struct TextAttr attr;
     struct TextFont *font;
 
-    attr.ta_Name  = name;
+    attr.ta_Name  = progdirPath;     // DCTelnet's own drawer first
     attr.ta_YSize = ysize;
     attr.ta_Style = FS_NORMAL;
     attr.ta_Flags = 0;
     font = OpenDiskFont(&attr);
     if (!font)
     {
-        attr.ta_Name = progdirPath;
+        attr.ta_Name = name;         // then FONTS:
         font = OpenDiskFont(&attr);
     }
     return font;
@@ -3522,7 +3525,8 @@ static BOOL OpenConsoleDevice(void)
         LogWindowsSigBit();
     #endif
 
-    b = OpenDevice(devName, unitNumber, (struct IORequest *)writeConsoleReq, CONFLAG_DEFAULT);
+    b = OpenNewestDevice(devName, unitNumber, (struct IORequest *)writeConsoleReq, CONFLAG_DEFAULT);
+    consoleFrom = ShippedFrom;      // for the start-up line
 
     #ifdef _DEBUG
         PutStr("   <-- OpenDevice()\n");
@@ -3714,7 +3718,15 @@ static void OpenAnsiFont(void)
             ansiFont = OpenBundledFont(TOPAZ_PRO_NAME, "PROGDIR:Fonts/" TOPAZ_PRO_NAME, TOPAZ_PRO_SIZE);
     }
     if (!ansiFont)
-        ansiFont = OpenDiskFont(&fontAttr);
+    {
+        // DCTelnet's Fonts drawer first (the fonts it ships), then FONTS:
+        static char own[64];
+
+        if (ProgDir_Path("Fonts", (const char *)fontAttr.ta_Name, own, sizeof(own)))
+            ansiFont = OpenBundledFont(fontAttr.ta_Name, own, fontAttr.ta_YSize);
+        else
+            ansiFont = OpenDiskFont(&fontAttr);
+    }
     if(!ansiFont)
     {
         fontAttr.ta_Name = "topaz.font";
@@ -4160,8 +4172,8 @@ BOOL OpenDisplay(void)
             UWORD cols, rows;
             struct Library *dev = (struct Library *)writeConsoleReq->io_Device;
 
-            mysprintf(engine, "ibmcon.device %ld.%ld, %ld bit planes",
-                      (LONG)dev->lib_Version, (LONG)dev->lib_Revision,
+            mysprintf(engine, "ibmcon.device %ld.%ld from %s, %ld bit planes",
+                      (LONG)dev->lib_Version, (LONG)dev->lib_Revision, consoleFrom,
                       (LONG)AppScreenDepth(scr));
             if (ansiOwnPens && penTableError)
                 strlcat(engine, "\r\n  ANSI colours NOT on their own pens: this ibmcon is\r\n"
