@@ -3961,7 +3961,12 @@ BOOL OpenDisplay(void)
         {
             // Which ibmcon runs and how it draws the ANSI colours: it is
             // opened from DEVS:, not from the Devs drawer next to DCTelnet.
-            static char engine[140];
+            static char engine[240];
+            char grid[96];
+            struct TextFont *cell = win->RPort->Font;
+            BOOL gzz = (win->Flags & WFLG_GIMMEZEROZERO) != 0;
+            LONG areaW = gzz ? win->GZZWidth : win->Width;
+            LONG areaH = gzz ? win->GZZHeight : win->Height;
             struct Library *dev = (struct Library *)writeConsoleReq->io_Device;
 
             mysprintf(engine, "ibmcon.device %ld.%ld, %ld bit planes",
@@ -3973,6 +3978,12 @@ BOOL OpenDisplay(void)
                         sizeof(engine));
             else if (ansiOwnPens)
                 strlcat(engine, ", ANSI colours on their own pens", sizeof(engine));
+            // The grid ibmcon should measure from the same window: rows that
+            // do not fit are drawn below the edge and lost.
+            mysprintf(grid, "\r\n  Text area: %ld x %ld characters (window %ld x %ld, font %ld x %ld)",
+                      areaW / cell->tf_XSize, areaH / cell->tf_YSize, areaW, areaH,
+                      (LONG)cell->tf_XSize, (LONG)cell->tf_YSize);
+            strlcat(engine, grid, sizeof(engine));
             dispEngine = engine;
         }
 
