@@ -181,6 +181,12 @@ static struct TextAttr fontAttr;    // describes the desired font
 struct TextFont *ansiFont;          // actual font loaded via OpenFont(), ready to use
 static struct TextFont *petsciiFont = NULL;      // upper/graphics charset font
 static struct TextFont *petsciiFontLower = NULL; // shifted/lowercase charset font
+// PETSCII only makes sense in a PETSCII BBS session: the C64 fonts and console
+// setup are up only while a connection is being made or live (connectionDisplay)
+// with PETSCII Mode on. Start-up and disconnected text keep the normal font.
+static BOOL connectionDisplay = FALSE;   // a connection is being prepared or is live
+static BOOL displayIsPetscii = FALSE;    // the display was opened for PETSCII
+#define PETSCII_SESSION() (connectionDisplay && (prefs.flags & FLAG_PETSCII_MODE))
 static BOOL isConDeviceOpened = FALSE;
 static struct IOStdReq *writeConsoleReq = NULL;
 static struct MsgPort  *writeConsoleMP  = NULL;
@@ -283,9 +289,36 @@ static void ConWrite(char *data, long len)
     }
 }
 
+/*
+ * DCTelnet's own messages. While the C64 display is up they are rewritten so
+ * the letters read as intended in the active C64 charset (petscii_local_text).
+ */
+static void LocalWrite(char *data, long len)
+{
+    static struct PetsciiLocalText lt;
+    static char chunk[256];
+
+    if (!displayIsPetscii || !petsciiFont)
+    {
+        ConWrite(data, len);
+        return;
+    }
+    petscii_local_text_init(&lt, win && win->RPort->Font == petsciiFontLower);
+    while (len > 0)
+    {
+        long n = len < (long)sizeof(chunk) ? len : (long)sizeof(chunk);
+
+        memcpy(chunk, data, n);
+        petscii_local_text(&lt, chunk, (size_t)n);
+        ConWrite(chunk, n);
+        data += n;
+        len -= n;
+    }
+}
+
 void LocalPrint(char *data)
 {
-    ConWrite(data, strlen(data));
+    LocalWrite(data, strlen(data));
 }
 
 // WARNING: This function uses the same global buffer "buf" that is also used by recv() to receive
@@ -299,7 +332,7 @@ void LocalFmt(char *ctl, ...)
     #ifdef __VBCC__
     #pragma popwarn
     #endif
-    ConWrite(buf, strlen(buf));
+    LocalWrite(buf, strlen(buf));
 }
 
 // WARNING: This function uses the same global buffer "buf" that is also used by recv() to receive
@@ -564,6 +597,17 @@ static struct
     char  username[42], password[42];
 } pendingConnect;
 
+// Reopen the display when the C64 display it shows no longer matches what
+// the connection state and PETSCII Mode want.
+static void SyncPetsciiDisplay(void)
+{
+    if ((PETSCII_SESSION() != 0) != displayIsPetscii)
+    {
+        shouldRestart = TRUE;
+        shouldReopenScreen = TRUE;
+    }
+}
+
 static void RequestDisplayReopen(const struct PrefsStruct *before)
 {
     BOOL reopenScreen;
@@ -594,29 +638,38 @@ BOOL BeginEntrySession(ULONG settingsId, const struct PrefsStruct *entry)
 
     if (isConnected) DisConnect(FALSE, FALSE);
     EndEntrySession();
-    if (!entry) return shouldRestart;
 
-    before = prefs;
-    globalPrefs = prefs;
-    SitePrefs_ApplyEntry(&prefs, entry);
-    sessionSettingsId = settingsId;
-    RequestDisplayReopen(&before);
+    connectionDisplay = TRUE;
+    if (entry)
+    {
+        before = prefs;
+        globalPrefs = prefs;
+        SitePrefs_ApplyEntry(&prefs, entry);
+        sessionSettingsId = settingsId;
+        RequestDisplayReopen(&before);
+    }
+    SyncPetsciiDisplay();
     return shouldRestart;
 }
 
 /**
- * @brief Restore the global settings after an entry session (disconnect or a
- *        failed connect). Requests a display reopen when they differ.
+ * @brief End a connection's settings (disconnect or a failed connect): the
+ *        global settings come back after an entry session, and the C64
+ *        display goes. Requests a display reopen when anything visible changes.
  */
 void EndEntrySession(void)
 {
     static struct PrefsStruct before;
 
-    if (!sessionSettingsId) return;
-    before = prefs;
-    SitePrefs_Restore(&prefs, &globalPrefs);
-    sessionSettingsId = 0;
-    RequestDisplayReopen(&before);
+    connectionDisplay = FALSE;
+    if (sessionSettingsId)
+    {
+        before = prefs;
+        SitePrefs_Restore(&prefs, &globalPrefs);
+        sessionSettingsId = 0;
+        RequestDisplayReopen(&before);
+    }
+    SyncPetsciiDisplay();
 }
 
 void DeferConnect(const char *name, const char *host, UWORD port, ULONG settingsId,
@@ -989,7 +1042,7 @@ static void Receive(void)
 
         if (outLen > 0)
         {
-            if (prefs.flags & FLAG_PETSCII_MODE)
+            if (PETSCII_SESSION())
             {
                 /* Translated in chunks sized so even the worst-case expansion
                  * (PETSCII_MAX_OUT_PER_BYTE) fits: output is never truncated. */
@@ -1247,7 +1300,9 @@ static void Finger(void)
             // End any entry session (and its connection) BEFORE touching the
             // flag: ending it later, inside the connect, would restore the
             // global settings over FLAG_RAW_CONNECTION.
-            BeginEntrySession(0, NULL);
+            // Finger is plain text: no C64 display, whatever PETSCII Mode says.
+            if (isConnected) DisConnect(FALSE, FALSE);
+            EndEntrySession();
             originalState = prefs.flags & FLAG_RAW_CONNECTION;
 
             host[0] = 0;
@@ -1530,12 +1585,18 @@ int main(int argc, char *argv[])
         LogWindowsSigBit();
     #endif
 
-    // Connect to server if it was specified in the command line. It needs an opened display.
-    if (server[0] != '\0')
-        BeginServerConnection(server, tcpPort);
-
     shouldRestart = FALSE;
     shouldReopenScreen = FALSE;
+
+    // Connect to server if it was specified in the command line. It needs an opened display,
+    // and in PETSCII Mode the C64 one: the main loop reopens it, then connects.
+    if (server[0] != '\0')
+    {
+        if (BeginEntrySession(0, NULL))
+            DeferConnect("", server, tcpPort, 0, "", "");
+        else
+            BeginServerConnection(server, tcpPort);
+    }
 
 /* ------ main loop ------ */
     shouldQuitApp = FALSE;
@@ -2197,7 +2258,7 @@ static void GetWindowMsg(struct Window *wwin)
                             if(key_csi)
                             {
                                 key_csi = FALSE;
-                                if (conbuf[i] >= '0' && conbuf[i] <= '9' && !(prefs.flags & FLAG_PETSCII_MODE))
+                                if (conbuf[i] >= '0' && conbuf[i] <= '9' && !PETSCII_SESSION())
                                 {
                                     key_macro = TRUE;
                                     SendMacro(&fKeys[(conbuf[i] - '0') * F_KEY_SIZE]);
@@ -2208,7 +2269,7 @@ static void GetWindowMsg(struct Window *wwin)
                                  * F1-F10 as ESC [ <digit> per the digit branch
                                  * above (0-9); only 1-8 have a PETSCII
                                  * counterpart (F9/F10/F0 have none). */
-                                else if ((prefs.flags & FLAG_PETSCII_MODE)
+                                else if (PETSCII_SESSION()
                                          && conbuf[i] >= '1' && conbuf[i] <= '8')
                                 {
                                     static const int fkeys[8] = {
@@ -2219,7 +2280,7 @@ static void GetWindowMsg(struct Window *wwin)
                                     OutKey((unsigned char)petscii_translate_key(fkeys[conbuf[i] - '1'], 1));
                                 }
 
-                                if (prefs.flags & FLAG_PETSCII_MODE)
+                                if (PETSCII_SESSION())
                                 {
                                     switch(conbuf[i])
                                     {
@@ -2250,12 +2311,12 @@ static void GetWindowMsg(struct Window *wwin)
                                     key_macro = FALSE;
                                 else
                                 {
-                                    if ((prefs.flags & FLAG_PETSCII_MODE) && (conbuf[i] == DEL_CHAR || conbuf[i] == '\b'))
+                                    if (PETSCII_SESSION() && (conbuf[i] == DEL_CHAR || conbuf[i] == '\b'))
                                         /* PETSCII's own DEL byte (20), not ASCII BS/DEL --
                                          * FLAG_BS_DEL_SWAP is an ASCII-only concept and
                                          * does not apply here. */
                                         OutKey((unsigned char)petscii_translate_key(PETSCII_KEY_DEL, 1));
-                                    else if ((prefs.flags & FLAG_PETSCII_MODE) && conbuf[i] != '\r')
+                                    else if (PETSCII_SESSION() && conbuf[i] != '\r')
                                         OutKey((unsigned char)petscii_translate_key(conbuf[i], 0));
                                     else
                                         OutKey(conbuf[i]);
@@ -2510,12 +2571,11 @@ static void GetWindowMsg(struct Window *wwin)
                     case MENU_PETSCII_MODE:
                         UpdatePrefsFlagFromMenu(item, FLAG_PETSCII_MODE);
                         petscii_dispatch_init(&g_petsciiState, 40, 25);
-                        /* The console device fixes its cell size from the RastPort
-                         * font at OpenDevice() time, so a font swap needs the same
-                         * close/reopen as MENU_SCREEN_FONT -- OpenAppScreen() picks
-                         * the PETSCII fonts from FLAG_PETSCII_MODE. */
-                        shouldRestart = TRUE;
-                        shouldReopenScreen = TRUE;
+                        /* The C64 display is up only during a connection. Toggled
+                         * while connected, the display reopens (the console fixes its
+                         * cell size at OpenDevice() time, as for MENU_SCREEN_FONT);
+                         * toggled while disconnected, nothing visible changes. */
+                        SyncPetsciiDisplay();
                         break;
 
                     case MENU_SCREEN_MODE:
@@ -2895,7 +2955,7 @@ static UWORD EstablishTCPConnection(char *servername, UWORD port)
      * mode already saved in prefs ran on a zeroed state (cols = 0), so
      * every printable byte "wrapped" and got its own line. */
     petscii_dispatch_init(&g_petsciiState, 40, 25);
-    if ((prefs.flags & FLAG_PETSCII_MODE) && !petsciiFont)
+    if (PETSCII_SESSION() && !petsciiFont)
         LocalPrint("\r\nPETSCII Mode: Petscii.font not found in FONTS: or PROGDIR:Fonts/, "
                    "showing CP437 lookalikes.\r\n");
 
@@ -2948,7 +3008,8 @@ struct Screen* OpenAppScreen(void)
         ansiFont = OpenFont(&fontAttr);
     }
 
-    if (prefs.flags & FLAG_PETSCII_MODE)
+    displayIsPetscii = PETSCII_SESSION() != 0;
+    if (displayIsPetscii)
     {
         /* Petscii/PetsciiLower.font: real C64 glyphs indexed by raw PETSCII
          * byte, double-width (16x8) cells so 40 columns fill roughly the
@@ -3380,7 +3441,7 @@ BOOL OpenDisplay(void)
     isAppIconified = FALSE;
 
     /* After isAppIconified is cleared: ConWrite() drops writes while it is set. */
-    if (isConDeviceOpened && (prefs.flags & FLAG_PETSCII_MODE))
+    if (isConDeviceOpened && displayIsPetscii)
         ConWrite(PETSCII_CONSOLE_SETUP, sizeof(PETSCII_CONSOLE_SETUP) - 1);
 
     LEDs();

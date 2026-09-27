@@ -1,8 +1,10 @@
 /* src/site_prefs.c -- per-Address-Book-entry settings (issue #10). */
 #include "site_prefs.h"
 
-/* Flags whose change needs the screen reopened (OpenAppScreen reads them). */
-#define SCREEN_FLAGS  (FLAG_USE_WORKBENCH | FLAG_HIDE_TITLEBAR | FLAG_PETSCII_MODE)
+/* Flags whose change needs the screen reopened (OpenAppScreen reads them).
+ * FLAG_PETSCII_MODE is not one: the C64 display is up only during a
+ * connection, and DCTelnet.c switches it with the connection itself. */
+#define SCREEN_FLAGS  (FLAG_USE_WORKBENCH | FLAG_HIDE_TITLEBAR)
 
 /* Flags whose change needs the windows reopened (OpenDisplay reads them). */
 #define WINDOW_FLAGS  (FLAG_PACKET_WINDOW | FLAG_USE_XEM_LIBRARY | FLAG_TOOL_BAR | FLAG_JUMP_SCROLL)
