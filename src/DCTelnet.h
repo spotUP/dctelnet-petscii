@@ -96,7 +96,8 @@ extern struct NewWindow newWin;
 extern struct PrefsStruct prefs;
 extern struct PrefsStruct globalPrefs;   // global settings during an entry session
 extern ULONG sessionSettingsId;          // 0 = no entry session
-BOOL BeginEntrySession(ULONG settingsId, const struct PrefsStruct *entry);
+struct SiteSettings;
+BOOL BeginEntrySession(ULONG settingsId, const struct SiteSettings *entry);
 void EndEntrySession(void);
 void DeferConnect(const char *name, const char *host, UWORD port, ULONG settingsId,
                   const char *user, const char *pass);

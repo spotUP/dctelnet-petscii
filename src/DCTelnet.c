@@ -213,6 +213,8 @@ struct PrefsStruct prefs;         // live settings: what every part of DCTelnet 
 // sessionSettingsId != 0.
 struct PrefsStruct globalPrefs;
 ULONG sessionSettingsId = 0;      // settings id of the connected entry, 0 = global settings
+// An entry's settings file stores the function keys with this size.
+typedef char FKeysMatchSiteSettings[SITE_FKEY_BYTES == F_KEY_COUNT * F_KEY_SIZE ? 1 : -1];
 
 static BPTR fileHandle;
 long nScrollbackLines;
@@ -632,7 +634,7 @@ static void RequestDisplayReopen(const struct PrefsStruct *before)
  * @return TRUE when the display must be reopened before connecting: the
  *         caller queues the connect with DeferConnect().
  */
-BOOL BeginEntrySession(ULONG settingsId, const struct PrefsStruct *entry)
+BOOL BeginEntrySession(ULONG settingsId, const struct SiteSettings *entry)
 {
     static struct PrefsStruct before;
 
@@ -644,7 +646,7 @@ BOOL BeginEntrySession(ULONG settingsId, const struct PrefsStruct *entry)
     {
         before = prefs;
         globalPrefs = prefs;
-        SitePrefs_ApplyEntry(&prefs, entry);
+        SitePrefs_ApplyEntry(&prefs, &globalPrefs, entry);
         sessionSettingsId = settingsId;
         RequestDisplayReopen(&before);
     }

@@ -18,17 +18,69 @@ static struct PrefsStruct make(ULONG flags, const char *font, UWORD size) {
     return p;
 }
 
-/* The entry's settings replace everything except where the windows are. */
-static void test_apply_entry_keeps_window_geometry(void) {
-    struct PrefsStruct live = make(0, "IBM.font", 8);
-    struct PrefsStruct entry = make(FLAG_PETSCII_MODE, "Petscii.font", 8);
-    entry.win_left = 99; entry.sb_lines = 1234;
+static struct SiteSettings entry_with(ULONG groups, struct PrefsStruct p) {
+    struct SiteSettings e;
+    memset(&e, 0, sizeof(e));
+    e.groups = groups;
+    e.prefs = p;
+    return e;
+}
 
-    SitePrefs_ApplyEntry(&live, &entry);
-    assert(live.flags == FLAG_PETSCII_MODE);
-    assert(strcmp(live.fontname, "Petscii.font") == 0);
-    assert(live.sb_lines == 1234);
-    assert(live.win_left == 10); /* geometry stays global */
+/* An overridden group's members come from the entry; everything else --
+ * other groups AND the app-wide settings (G3) -- from the global settings;
+ * window geometry stays where the windows are. */
+static void test_apply_takes_only_overridden_groups(void) {
+    struct PrefsStruct global = make(FLAG_BS_DEL_SWAP, "IBM.font", 8), live = global;
+    struct PrefsStruct e = make(FLAG_PETSCII_MODE | FLAG_HIDE_LEDS, "Petscii.font", 8);
+    struct SiteSettings entry;
+
+    strcpy(e.displayidstr, "PETSCII");
+    strcpy(e.xferlibrary, "xprkermit.library");
+    e.sb_lines = 9999;                       /* app-wide: never from an entry */
+    e.win_left = 99;                         /* geometry: never from an entry */
+    live.win_left = 42;
+
+    entry = entry_with(SITE_GROUP_SCREEN | SITE_GROUP_TERMINAL, e);
+    SitePrefs_ApplyEntry(&live, &global, &entry);
+
+    assert(strcmp(live.fontname, "Petscii.font") == 0);        /* Screen: entry */
+    assert(live.flags & FLAG_PETSCII_MODE);                     /* Terminal: entry */
+    assert(strcmp(live.displayidstr, "PETSCII") == 0);
+    assert(live.flags & FLAG_BS_DEL_SWAP);                      /* Keyboard: global */
+    assert(strcmp(live.xferlibrary, "xprkermit.library") != 0); /* Transfer: global */
+    assert(!(live.flags & FLAG_HIDE_LEDS));                     /* app-wide: global */
+    assert(live.sb_lines == global.sb_lines);
+    assert(live.win_left == 42);
+}
+
+static void test_each_group_moves_only_its_members(void) {
+    struct PrefsStruct global = make(0, "IBM.font", 8), live;
+    struct PrefsStruct e = make(FLAG_RETURN_CRLF | FLAG_USE_WORKBENCH | FLAG_RAW_CONNECTION,
+                                "Topaz.font", 11);
+    struct SiteSettings entry;
+
+    strcpy(e.xferinit, "TN");
+    e.DisplayDepth = 8;
+
+    live = global; entry = entry_with(SITE_GROUP_KEYBOARD, e);
+    SitePrefs_ApplyEntry(&live, &global, &entry);
+    assert(live.flags == FLAG_RETURN_CRLF && live.DisplayDepth == 4);
+
+    live = global; entry = entry_with(SITE_GROUP_TRANSFER, e);
+    SitePrefs_ApplyEntry(&live, &global, &entry);
+    assert(strcmp(live.xferinit, "TN") == 0 && live.flags == 0);
+
+    live = global; entry = entry_with(SITE_GROUP_SCREEN, e);
+    SitePrefs_ApplyEntry(&live, &global, &entry);
+    assert(live.flags == FLAG_USE_WORKBENCH && live.DisplayDepth == 8 && live.fontsize == 11);
+
+    live = global; entry = entry_with(SITE_GROUP_TERMINAL, e);
+    SitePrefs_ApplyEntry(&live, &global, &entry);
+    assert(live.flags == FLAG_RAW_CONNECTION && live.fontsize == 8);
+
+    live = global; entry = entry_with(0, e);                    /* nothing overridden */
+    SitePrefs_ApplyEntry(&live, &global, &entry);
+    assert(memcmp(&live, &global, sizeof(live)) == 0);
 }
 
 /* Disconnect: the global settings come back, the windows stay where the user
@@ -91,30 +143,56 @@ static void test_display_differs_names_what_needs_a_reopen(void) {
     assert(SitePrefs_DisplayDiffers(&a, &b, &screen) && !screen);
 }
 
-/* The sidecar file an entry's settings live in: magic + the PrefsStruct
- * dump. A file from another version, a truncated one, or garbage is "no
- * settings", never a half-read struct. */
+/* An entry's settings file: 'DCS2', the group mask, the settings, the
+ * function keys and the login macro. A truncated, foreign or unknown file
+ * is "no settings", never a half-read struct. */
 static void test_sidecar_round_trip_and_rejects(void) {
-    struct PrefsStruct in = make(FLAG_PETSCII_MODE, "Petscii.font", 8), out;
-    UBYTE buf[SITE_PREFS_FILE_SIZE + 8];
+    static struct SiteSettings in, out;
+    static TEXT globalKeys[SITE_FKEY_BYTES];
+    static UBYTE buf[SITE_FILE_SIZE_MAX + 8];
     size_t n;
 
+    in = entry_with(SITE_GROUP_TERMINAL, make(FLAG_PETSCII_MODE, "Petscii.font", 8));
+    strcpy((char *)in.fKeys, "F1 macro");
+    strcpy(in.loginMacro, "\\u\\r\\p\\r");
     n = SitePrefs_Encode(&in, buf, sizeof(buf));
-    assert(n == SITE_PREFS_FILE_SIZE);
-    assert(buf[0] == 'D' && buf[1] == 'C' && buf[2] == 'S' && buf[3] == '1');
+    assert(n == SITE_FILE_SIZE_MAX);
+    assert(buf[0] == 'D' && buf[1] == 'C' && buf[2] == 'S' && buf[3] == '2');
     memset(&out, 0xAA, sizeof(out));
-    assert(SitePrefs_Decode(&out, buf, n));
+    assert(SitePrefs_Decode(&out, buf, n, globalKeys));
     assert(memcmp(&in, &out, sizeof(in)) == 0);
 
-    assert(!SitePrefs_Decode(&out, buf, n - 1));           /* truncated */
-    buf[3] = '2';
-    assert(!SitePrefs_Decode(&out, buf, n));               /* other version */
-    assert(SitePrefs_Encode(&in, buf, SITE_PREFS_FILE_SIZE - 1) == 0); /* no room */
+    assert(!SitePrefs_Decode(&out, buf, n - 1, globalKeys));   /* truncated */
+    buf[3] = '9';
+    assert(!SitePrefs_Decode(&out, buf, n, globalKeys));       /* unknown version */
+    assert(SitePrefs_Encode(&in, buf, SITE_FILE_SIZE_MAX - 1) == 0);
+}
+
+/* Files written by the first per-entry build ('DCS1' + PrefsStruct, a full
+ * snapshot) load as every group overridden, with the global function keys
+ * and no login macro. */
+static void test_a_dcs1_snapshot_loads_as_all_groups(void) {
+    static struct SiteSettings out;
+    static TEXT globalKeys[SITE_FKEY_BYTES];
+    struct PrefsStruct p = make(FLAG_PETSCII_MODE, "Petscii.font", 8);
+    UBYTE buf[4 + sizeof(struct PrefsStruct)];
+
+    memcpy(buf, "DCS1", 4);
+    memcpy(buf + 4, &p, sizeof(p));
+    strcpy((char *)globalKeys, "global F1");
+    assert(SitePrefs_Decode(&out, buf, sizeof(buf), globalKeys));
+    assert(out.groups == SITE_GROUPS_ALL);
+    assert(memcmp(&out.prefs, &p, sizeof(p)) == 0);
+    assert(strcmp((char *)out.fKeys, "global F1") == 0);
+    assert(out.loginMacro[0] == 0);
+    assert(!SitePrefs_Decode(&out, buf, sizeof(buf) - 1, globalKeys));
 }
 
 int main(void) {
     test_sidecar_round_trip_and_rejects();
-    test_apply_entry_keeps_window_geometry();
+    test_apply_takes_only_overridden_groups();
+    test_each_group_moves_only_its_members();
+    test_a_dcs1_snapshot_loads_as_all_groups();
     test_restore_brings_back_global_but_keeps_moved_windows();
     test_save_writes_global_during_a_session();
     test_display_differs_names_what_needs_a_reopen();
