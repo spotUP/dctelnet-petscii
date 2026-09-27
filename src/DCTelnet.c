@@ -146,6 +146,7 @@ static struct NewMenu mainMenuDesc[] =
     {    NM_ITEM, "Telnet Display ID..",            "9",             0,               0, (APTR)MENU_TELNET_DISPLAY_ID},
     {    NM_ITEM, "ScrollBack Lines..",             "0",             0,               0, (APTR)MENU_SCROLLBACK_LINES},
     {    NM_ITEM, "Snapshot Windows",               "$",             0,               0, (APTR)MENU_SNAPSHOT_WINDOWS},
+    {    NM_ITEM, "Save Settings to Address Book Entry", 0,          0,               0, (APTR)MENU_SAVE_ENTRY_SETTINGS},
 
     { NM_TITLE, "Login",  0, 0, 0, (APTR)MENU_LOGIN},
     {    NM_ITEM, "Send Username",                  "N",             0,               0, (APTR)MENU_SEND_USERNAME},
@@ -530,6 +531,7 @@ static void DisConnect(char remote, char quiet)
         LEDs();
 
         // The connection ends, and with it any Address Book entry's settings.
+        ForgetConnectedEntry();
         EndEntrySession();
     }
 }
@@ -555,6 +557,7 @@ void SavePrefs(void)
 static struct
 {
     BOOL  active;
+    char  name[32];
     char  host[52];
     UWORD port;
     ULONG settingsId;
@@ -573,14 +576,17 @@ static void RequestDisplayReopen(const struct PrefsStruct *before)
 }
 
 /**
- * @brief Make an Address Book entry's own settings the live settings.
+ * @brief Prepare the settings for the next connect; call before every
+ *        user-initiated connect.
  *
- * Ends any current connection (and with it any previous entry session), keeps
- * the global settings aside in globalPrefs and applies the entry's (window
- * geometry stays global). Menu changes from now on are session-only; only
- * globalPrefs is saved.
+ * Ends any current connection (and with it any previous entry session). With
+ * an entry (settingsId != 0), keeps the global settings aside in globalPrefs
+ * and applies the entry's (window geometry stays global); menu changes from
+ * now on are session-only and only globalPrefs is saved. With entry == NULL
+ * the connect uses the global settings.
  *
- * @return TRUE when the display must be reopened before connecting.
+ * @return TRUE when the display must be reopened before connecting: the
+ *         caller queues the connect with DeferConnect().
  */
 BOOL BeginEntrySession(ULONG settingsId, const struct PrefsStruct *entry)
 {
@@ -588,6 +594,7 @@ BOOL BeginEntrySession(ULONG settingsId, const struct PrefsStruct *entry)
 
     if (isConnected) DisConnect(FALSE, FALSE);
     EndEntrySession();
+    if (!entry) return shouldRestart;
 
     before = prefs;
     globalPrefs = prefs;
@@ -612,9 +619,10 @@ void EndEntrySession(void)
     RequestDisplayReopen(&before);
 }
 
-void DeferConnect(const char *host, UWORD port, ULONG settingsId,
+void DeferConnect(const char *name, const char *host, UWORD port, ULONG settingsId,
                   const char *user, const char *pass)
 {
+    strlcpy(pendingConnect.name, name, sizeof(pendingConnect.name));
     strlcpy(pendingConnect.host, host, sizeof(pendingConnect.host));
     pendingConnect.port = port;
     pendingConnect.settingsId = settingsId;
@@ -629,7 +637,11 @@ static void RunPendingConnect(void)
     tcpPort = pendingConnect.port;
     if (BeginServerConnection(pendingConnect.host, pendingConnect.port) == RETURN_OK)
     {
-        MarkEntryConnected(pendingConnect.settingsId);
+        if (pendingConnect.name[0])     // "" = Connection > Connect, not an entry
+        {
+            RememberConnectedEntry(pendingConnect.name, pendingConnect.host, pendingConnect.port);
+            StampConnectedEntry();
+        }
         strlcpy(username, pendingConnect.username, sizeof(username));
         strlcpy(password, pendingConnect.password, sizeof(password));
     }
@@ -1836,6 +1848,9 @@ static void OnConnectClicked(char spawnInstance)
                 #endif
                 // This function attempts to execute the string commandString as a Shell command
                 Execute(buf, (BPTR) 0, (BPTR) 0);
+            } else if (BeginEntrySession(0, NULL)) {
+                // Ending an entry session reopens the display: connect after it.
+                DeferConnect("", tbuf, port, 0, "", "");
             } else {
                 tcpPort = port;
                 BeginServerConnection(tbuf, tcpPort);
@@ -2598,6 +2613,13 @@ static void GetWindowMsg(struct Window *wwin)
                             prefs.toolBarWin_top = toolBarWin->TopEdge;
                         }
 
+                        break;
+
+                    case MENU_SAVE_ENTRY_SETTINGS:
+                        if (!SaveSettingsToConnectedEntry())
+                            InfoReq(isRunningOnWB ? NULL : win,
+                                    "Connect to an Address Book entry first.\n"
+                                    "(Or the Sites drawer could not be written.)");
                         break;
 
                     case MENU_SEND_USERNAME:

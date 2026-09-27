@@ -37,7 +37,7 @@ struct BookStruct
     char    res[78];        // reserved; old versions write it back byte for byte
 };
 
-static BOOL EditProfile(struct BookStruct *book);
+static BOOL EditProfile(struct BookStruct *book, struct List *list);
 
 /*
  * Per-entry settings files (issue #10). An entry that has settings of its own
@@ -103,31 +103,127 @@ static void DeleteEntrySettings(ULONG id)
 }
 
 /*
- * Stamp lastConnect on the DCTelnet.Book record with this settings id. Used
- * when the connect ran after the Address Book window had closed (it waited
- * for the display to reopen with the entry's settings), so the in-memory
- * list the window normally updates is gone.
+ * The Address Book entry the current connection came from, so
+ * Settings > Save Settings to Address Book Entry knows which record to
+ * update. Matched in DCTelnet.Book by name, host and port.
  */
-void MarkEntryConnected(ULONG settingsId)
+static struct
+{
+    BOOL  valid;
+    char  name[32];
+    char  host[52];
+    UWORD port;
+} connectedEntry;
+
+void RememberConnectedEntry(const char *name, const char *host, UWORD port)
+{
+    strlcpy(connectedEntry.name, name, sizeof(connectedEntry.name));
+    strlcpy(connectedEntry.host, host, sizeof(connectedEntry.host));
+    connectedEntry.port = port;
+    connectedEntry.valid = TRUE;
+}
+
+void ForgetConnectedEntry(void)
+{
+    connectedEntry.valid = FALSE;
+}
+
+// Offset of the connected entry's record in DCTelnet.Book (fh positioned at
+// the start), -1 if absent. *maxId receives the highest settings id seen.
+static LONG FindConnectedRecord(BPTR fh, struct BookStruct *record, ULONG *maxId)
+{
+    LONG offset = -1, pos = 0;
+
+    *maxId = 0;
+    while (Read(fh, record, sizeof(*record)) == sizeof(*record))
+    {
+        if (record->settingsId > *maxId) *maxId = record->settingsId;
+        if (offset < 0 && record->port == connectedEntry.port
+            && !strcmp(record->name, connectedEntry.name) && !strcmp(record->host, connectedEntry.host))
+            offset = pos;
+        pos += sizeof(*record);
+    }
+    return offset;
+}
+
+/*
+ * Stamp lastConnect on the connected entry's DCTelnet.Book record. Used when
+ * the connect ran after the Address Book window had closed (it waited for the
+ * display to reopen), so the in-memory list the window normally updates is gone.
+ */
+void StampConnectedEntry(void)
 {
     static struct BookStruct record;
+    ULONG maxId;
+    LONG offset;
     BPTR fh;
 
-    if (!settingsId) return;
+    if (!connectedEntry.valid) return;
     fh = Open(bookFilename, MODE_OLDFILE);
     if (!fh) return;
-    while (Read(fh, &record, sizeof(record)) == sizeof(record))
+    offset = FindConnectedRecord(fh, &record, &maxId);
+    if (offset >= 0)
     {
-        if (record.settingsId == settingsId)
+        Seek(fh, offset, OFFSET_BEGINNING);
+        if (Read(fh, &record, sizeof(record)) == sizeof(record))
         {
             record.lastConnect = mytime();
-            Seek(fh, -(LONG)sizeof(record), OFFSET_CURRENT);
+            Seek(fh, offset, OFFSET_BEGINNING);
             Write(fh, &record, sizeof(record));
-            break;
         }
     }
     Close(fh);
 }
+
+/*
+ * Settings > Save Settings to Address Book Entry: the live settings become
+ * the connected entry's own (creating its settings file and id if it had
+ * none), and from here on menu changes in this connection are session-only.
+ * Returns FALSE when not connected through the Address Book or on a write
+ * error.
+ */
+BOOL SaveSettingsToConnectedEntry(void)
+{
+    static struct BookStruct record;
+    BPTR fh;
+    LONG offset;
+    ULONG maxId, id = 0;
+    BOOL ok = FALSE;
+
+    if (!connectedEntry.valid) return FALSE;
+    fh = Open(bookFilename, MODE_OLDFILE);
+    if (!fh) return FALSE;
+    offset = FindConnectedRecord(fh, &record, &maxId);
+    if (offset >= 0)
+    {
+        Seek(fh, offset, OFFSET_BEGINNING);
+        if (Read(fh, &record, sizeof(record)) == sizeof(record))
+            id = record.settingsId;
+        if (!id) id = maxId + 1;
+        if (SaveEntrySettings(id, &prefs))
+        {
+            Seek(fh, offset, OFFSET_BEGINNING);
+            if (Read(fh, &record, sizeof(record)) == sizeof(record) && record.settingsId != id)
+            {
+                record.settingsId = id;
+                Seek(fh, offset, OFFSET_BEGINNING);
+                Write(fh, &record, sizeof(record));
+            }
+            ok = TRUE;
+        }
+    }
+    Close(fh);
+
+    if (ok && sessionSettingsId != id)
+    {
+        // The entry now has settings of its own: make this connection an
+        // entry session so later menu changes stay out of the global prefs.
+        globalPrefs = prefs;
+        sessionSettingsId = id;
+    }
+    return ok;
+}
+
 
 
 static struct Window         *aBookWnd;           // "Address Book" window
@@ -570,7 +666,7 @@ delete:
 edit:
                         if(worknode = FindNode(listviewlist, lastcode))
                         {
-                            if(EditProfile((struct BookStruct *)worknode->ln_Name))
+                            if(EditProfile((struct BookStruct *)worknode->ln_Name, listviewlist))
                             {
                                 GT_SetGadgetAttrs(aBookGadgets[GD_LIST],aBookWnd,0,GTLV_Labels,listviewlist,GTLV_Selected,lastcode,TAG_DONE);
                                 save = TRUE;
@@ -586,7 +682,7 @@ add:
                             strlcpy(book->name, "*new site*", sizeof(book->name));
                             strlcpy(book->host, "*ip/host here*", sizeof(book->host));
                             book->port = 23;
-                            if(EditProfile(book))
+                            if(EditProfile(book, listviewlist))
                             {
                                 worknode = AllocMem(sizeof(struct Node), MEMF_PUBLIC|MEMF_CLEAR);
                                 if(worknode)
@@ -617,13 +713,15 @@ add:
         static struct PrefsStruct entrySettings;
         BOOL hasSettings = LoadEntrySettings(conbook->settingsId, &entrySettings);
 
-        // An entry with settings of its own that change the display: the display
-        // must be reopened with them BEFORE connecting, which only the main loop
+        // When the settings for this connect change the display (the entry's own,
+        // or the global ones coming back after another entry's session), the
+        // display must be reopened BEFORE connecting, which only the main loop
         // can do -- this runs inside GetWindowMsg(win). The connect is queued and
         // runs right after the reopen.
-        if (hasSettings && BeginEntrySession(conbook->settingsId, &entrySettings))
+        if (BeginEntrySession(hasSettings ? conbook->settingsId : 0,
+                              hasSettings ? &entrySettings : NULL))
         {
-            DeferConnect(conbook->host, conbook->port, conbook->settingsId,
+            DeferConnect(conbook->name, conbook->host, conbook->port, conbook->settingsId,
                          conbook->username, conbook->password);
         }
         else
@@ -634,6 +732,7 @@ add:
                 conbook->lastConnect = mytime();
                 strlcpy(username, conbook->username, sizeof(username));
                 strlcpy(password, conbook->password, sizeof(password));
+                RememberConnectedEntry(conbook->name, conbook->host, conbook->port);
             }
             else
                 EndEntrySession();
@@ -662,9 +761,9 @@ add:
 
 static struct Window         *editProfileWnd;           // "Edit Address Book Profile" window
 static struct Gadget         *editProfileGList;         // "Edit Address Book Profile" window GList
-static struct Gadget         *editProfileGadgets[8];    // "Edit Address Book Profile" window gadgets
+static struct Gadget         *editProfileGadgets[editProfile_CNT]; // "Edit Address Book Profile" window gadgets
 #define editProfileWidth 450
-#define editProfileHeight 103
+#define editProfileHeight 135
 
 static UBYTE editProfileGTypes[] = {
     STRING_KIND,
@@ -674,18 +773,24 @@ static UBYTE editProfileGTypes[] = {
     BUTTON_KIND,
     INTEGER_KIND,
     STRING_KIND,
-    STRING_KIND
+    STRING_KIND,
+    TEXT_KIND,
+    BUTTON_KIND,
+    BUTTON_KIND
 };
 
 static struct MyNewGadget editProfileNGad[] = {
     120, 5, 317, 13, (UBYTE *)"_Site Name:",
     120, 21, 317, 13, (UBYTE *)"_Address:",
     121, 37, 177, 13, (UBYTE *)"Last Called:",
-    3, 88, 101, 13, (UBYTE *)"_Ok",
-    345, 88, 101, 13, (UBYTE *)"_Cancel",
+    3, 120, 101, 13, (UBYTE *)"_Ok",
+    345, 120, 101, 13, (UBYTE *)"_Cancel",
     365, 37, 72, 13, (UBYTE *)"_Port:",
     120, 53, 317, 13, (UBYTE *)"_Username:",
     120, 68, 317, 13, (UBYTE *)"Pass_word:",
+    120, 84, 317, 13, (UBYTE *)"Settings:",
+    3, 100, 218, 13, (UBYTE *)"Use Cu_rrent Settings",
+    228, 100, 218, 13, (UBYTE *)"Use _Global Settings",
 };
 
 static ULONG editProfileGTags[] = {
@@ -696,8 +801,22 @@ static ULONG editProfileGTags[] = {
     (GT_Underscore), '_', (TAG_DONE),
     (GTIN_Number), 0, (GTIN_MaxChars), 9, (GT_Underscore), '_', (TAG_DONE),
     GTST_String, 0, (GTST_MaxChars), 41, (GT_Underscore), '_', (TAG_DONE),
-    GTST_String, 0, (GTST_MaxChars), 41, (GT_Underscore), '_', (TAG_DONE)
+    GTST_String, 0, (GTST_MaxChars), 41, (GT_Underscore), '_', (TAG_DONE),
+    GTTX_Text, 0, (GTTX_Border), TRUE, (TAG_DONE),
+    (GT_Underscore), '_', (TAG_DONE),
+    (GT_Underscore), '_', (TAG_DONE)
 };
+
+// Where each gadget's initial value sits in editProfileGTags[] above (the
+// value slot after GTST_String / GTTX_Text / GTIN_Number). Keep in step with
+// the array when gadgets are added.
+#define EP_TAG_SITE      1
+#define EP_TAG_ADDRESS   8
+#define EP_TAG_LAST     15
+#define EP_TAG_PORT     26
+#define EP_TAG_USERNAME 33
+#define EP_TAG_PASSWORD 40
+#define EP_TAG_SETTINGS 47
 
 // Draw the Edit Address Book Profile window
 static int OpenEditProfileWindow( void )
@@ -765,9 +884,26 @@ Updates the book structure only if the user validates the changes.
 return TRUE  if the user validated the changes (OK)
        FALSE if the user cancelled or closed the window
  */
-static BOOL EditProfile(struct BookStruct *book)
+// Next free settings id: one above the highest id in the Address Book list.
+static ULONG NextSettingsId(struct List *list)
+{
+    struct Node *node;
+    ULONG maxId = 0;
+
+    for (node = list->lh_Head; node->ln_Succ; node = node->ln_Succ)
+    {
+        ULONG id = ((struct BookStruct *)node->ln_Name)->settingsId;
+        if (id > maxId) maxId = id;
+    }
+    return maxId + 1;
+}
+
+static BOOL EditProfile(struct BookStruct *book, struct List *list)
 {
     char strLastTime[2 * LEN_DATSTRING];
+    // The settings buttons only stage a change; Ok applies it, Cancel drops it.
+    enum { SETTINGS_KEEP, SETTINGS_USE_CURRENT, SETTINGS_USE_GLOBAL } settingsAction = SETTINGS_KEEP;
+    static struct PrefsStruct snapshot;
     struct IntuiMessage *message;
     struct Gadget *gad;
     ULONG class;
@@ -776,13 +912,15 @@ static BOOL EditProfile(struct BookStruct *book)
     BOOL ret = FALSE;
 
     // Initialize gadget fields with current book data
-    editProfileGTags[1] = (unsigned long)book->name;
-    editProfileGTags[8] = (unsigned long)book->host;
+    editProfileGTags[EP_TAG_SITE] = (unsigned long)book->name;
+    editProfileGTags[EP_TAG_ADDRESS] = (unsigned long)book->host;
     myctime(book->lastConnect, strLastTime, sizeof(strLastTime));
-    editProfileGTags[15] = (unsigned long)strLastTime;
-    editProfileGTags[26] = (unsigned long)book->port;
-    editProfileGTags[33] = (unsigned long)book->username;
-    editProfileGTags[40] = (unsigned long)book->password;
+    editProfileGTags[EP_TAG_LAST] = (unsigned long)strLastTime;
+    editProfileGTags[EP_TAG_PORT] = (unsigned long)book->port;
+    editProfileGTags[EP_TAG_USERNAME] = (unsigned long)book->username;
+    editProfileGTags[EP_TAG_PASSWORD] = (unsigned long)book->password;
+    editProfileGTags[EP_TAG_SETTINGS] = (unsigned long)(book->settingsId
+                                         ? "Own (saved with this entry)" : "Global");
 
     // Open the Edit Profile window
     if(OpenEditProfileWindow() == RETURN_OK)
@@ -829,6 +967,8 @@ static BOOL EditProfile(struct BookStruct *book)
                         case 'P':  vgad = editProfileGadgets[GD_PORT];        break;
                         case 'U':  vgad = editProfileGadgets[GD_USERNAME];    break;
                         case 'W':  vgad = editProfileGadgets[GD_PASSWORD];    break;
+                        case 'R':  goto useCurrent;
+                        case 'G':  goto useGlobal;
                     }
                     if(vgad) ActivateGadget(vgad, editProfileWnd, 0); // Focus gadget
                     break;
@@ -843,6 +983,19 @@ static BOOL EditProfile(struct BookStruct *book)
                     case GD_CANCEL:
                         subdone = TRUE;
                         ret = FALSE;
+                        break;
+                    case GD_USE_CURRENT:
+useCurrent:
+                        snapshot = prefs;   // the settings in use right now
+                        settingsAction = SETTINGS_USE_CURRENT;
+                        GT_SetGadgetAttrs(editProfileGadgets[GD_SETTINGS], editProfileWnd, NULL,
+                                          GTTX_Text, "Own: current settings (on Ok)", TAG_DONE);
+                        break;
+                    case GD_USE_GLOBAL:
+useGlobal:
+                        settingsAction = SETTINGS_USE_GLOBAL;
+                        GT_SetGadgetAttrs(editProfileGadgets[GD_SETTINGS], editProfileWnd, NULL,
+                                          GTTX_Text, "Global (on Ok)", TAG_DONE);
                         break;
                     }
                     break;
@@ -866,6 +1019,21 @@ static BOOL EditProfile(struct BookStruct *book)
             strlcpy(book->password,
                     ((struct StringInfo *)editProfileGadgets[GD_PASSWORD]->SpecialInfo)->Buffer,
                     sizeof(book->password));
+
+            if (settingsAction == SETTINGS_USE_CURRENT)
+            {
+                ULONG id = book->settingsId ? book->settingsId : NextSettingsId(list);
+
+                if (SaveEntrySettings(id, &snapshot))
+                    book->settingsId = id;
+                else
+                    InfoReq(editProfileWnd, "Could not save the settings to " SITES_DIR ".");
+            }
+            else if (settingsAction == SETTINGS_USE_GLOBAL && book->settingsId)
+            {
+                DeleteEntrySettings(book->settingsId);
+                book->settingsId = 0;
+            }
         }
 
         ClearPointer(aBookWnd); // Restore normal pointer

@@ -76,6 +76,7 @@ enum MenuItemID
     MENU_TELNET_DISPLAY_ID,
     MENU_SCROLLBACK_LINES,
     MENU_SNAPSHOT_WINDOWS,
+    MENU_SAVE_ENTRY_SETTINGS,
 
     MENU_LOGIN,
     MENU_SEND_USERNAME,
@@ -97,7 +98,7 @@ extern struct PrefsStruct globalPrefs;   // global settings during an entry sess
 extern ULONG sessionSettingsId;          // 0 = no entry session
 BOOL BeginEntrySession(ULONG settingsId, const struct PrefsStruct *entry);
 void EndEntrySession(void);
-void DeferConnect(const char *host, UWORD port, ULONG settingsId,
+void DeferConnect(const char *name, const char *host, UWORD port, ULONG settingsId,
                   const char *user, const char *pass);
 extern struct List *scrollbackList;
 extern struct Screen *scr;
