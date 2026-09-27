@@ -200,6 +200,7 @@ static BOOL connectionDisplay = FALSE;   // a connection is being prepared or is
 static struct IBox wbWindowBox;
 static BOOL wbWindowBoxValid = FALSE;
 static const char *consoleFrom = "the system";   // where ibmcon.device came from
+static char fontMissing[48];    // the font setting that could not be opened ("" = none)
 static BOOL displayIsPetscii = FALSE;    // the display was opened for PETSCII
 #define PETSCII_SESSION() (connectionDisplay && (prefs.flags & FLAG_PETSCII_MODE))
 static BOOL isConDeviceOpened = FALSE;
@@ -2998,14 +2999,20 @@ static void GetWindowMsg(struct Window *wwin)
                         break;
 
                     case MENU_SCREEN_FONT:
+                    {
+                        // The same reopen as an entry's font: on the Workbench
+                        // the console only, and a window at the BBS size stays
+                        // 80x25 in the new font (a 7x11 font came back in the
+                        // old 8x16 window: 91x36, cut to 80 columns).
+                        static struct PrefsStruct before;
+
+                        before = prefs;
                         if (FontRequester(isRunningOnWB ? NULL : win,
                                           prefs.fontname, sizeof(prefs.fontname),
                                           &prefs.fontsize))
-                        {
-                            shouldRestart = TRUE;
-                            shouldReopenScreen = TRUE;
-                        }
+                            RequestDisplayReopen(&before);
                         break;
+                    }
 
                     case MENU_SCREEN_PALETTE:
                         ChoosePalette();
@@ -3727,11 +3734,21 @@ static void OpenAnsiFont(void)
         else
             ansiFont = OpenDiskFont(&fontAttr);
     }
+    fontMissing[0] = 0;
     if(!ansiFont)
     {
-        fontAttr.ta_Name = "topaz.font";
-        fontAttr.ta_YSize = 8;
-        ansiFont = OpenFont(&fontAttr);
+        // The chosen font could not be opened: topaz, in the form the
+        // screen's pixels want (Topaz Pro on square ones), and say so.
+        struct ScreenFontChoice pick;
+
+        mysprintf(fontMissing, "%s %ld", prefs.fontname, (LONG)prefs.fontsize);
+        ScreenFont_ForMode("topaz.font", 8, modeResX, modeResY, &pick);
+        if (pick.topazPro)
+            ansiFont = OpenBundledFont(TOPAZ_PRO_NAME, "PROGDIR:Fonts/" TOPAZ_PRO_NAME, TOPAZ_PRO_SIZE);
+        fontAttr.ta_Name  = ansiFont ? (STRPTR)TOPAZ_PRO_NAME : (STRPTR)"topaz.font";
+        fontAttr.ta_YSize = ansiFont ? TOPAZ_PRO_SIZE : 8;
+        if (!ansiFont)
+            ansiFont = OpenFont(&fontAttr);
     }
 }
 
@@ -4186,6 +4203,13 @@ BOOL OpenDisplay(void)
             mysprintf(details, "\2330;1;36mScreen: \23337m%s\r\n\r\n"
                                "\23336mText area: \23337m%ld x %ld characters, font %ld x %ld\r\n\r\n",
                       screenInfo, (LONG)cols, (LONG)rows, (LONG)cell->tf_XSize, (LONG)cell->tf_YSize);
+            if (fontMissing[0])
+            {
+                char note[80];
+
+                mysprintf(note, "\23331mFont %s could not be opened\r\n\r\n", fontMissing);
+                strlcat(details, note, sizeof(details));
+            }
             dispEngine = engine;
         }
 

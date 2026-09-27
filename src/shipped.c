@@ -87,7 +87,13 @@ static const char *Choose(struct List *resident, BOOL device, const char *drawer
 
     if (node)                   // still in memory: exec hands out that one
     {
-        ShippedFrom = "memory";
+        // The same version as the chosen file is that file, loaded earlier
+        // (a reopen); an older one in use elsewhere is "memory".
+        if (hasOwn || hasSys)
+            ShippedFrom = ProgDir_Newer(fv, fr, node->lib_Version, node->lib_Revision)
+                        ? "memory" : (useOwn ? "DCTelnet's drawer" : "the system");
+        else
+            ShippedFrom = "memory";
         return name;
     }
     ShippedFrom = useOwn ? "DCTelnet's drawer" : "the system";
