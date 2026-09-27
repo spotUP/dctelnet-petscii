@@ -293,6 +293,9 @@ _LVODisplayBeep     EQU -$60
 ; struct Window -------------------------------------------------------
 wd_Width            EQU $08
 wd_Height           EQU $0A
+wd_Flags            EQU $18     ; ULONG; WFLG_GIMMEZEROZERO $400 = bit 2 of byte +2
+wd_GZZWidth         EQU $70     ; drawable size of a GimmeZeroZero window
+wd_GZZHeight        EQU $72
 wd_WScreen          EQU $2E
 wd_RPort            EQU $32
 
@@ -419,7 +422,8 @@ con_SavedMask       EQU $208    ; 's'/'u' snapshot of con_CharMask
                                 ; 1.5: the console struct grows by $12
 con_PenMap          EQU $20A    ; 16 bytes: logical ANSI pen -> screen pen
 con_PenMapOn        EQU $21A    ; word: <>0 once a client sent IBMCMD_SETPENS
-CON_FRAME           EQU $222    ; handler stack frame holding con (was $210)
+con_HeightPx        EQU $21C    ; drawable height when the grid was measured
+CON_FRAME           EQU $224    ; handler stack frame holding con (was $210)
 
 ;=====================================================================
         SECTION "Segment0",CODE
@@ -912,79 +916,30 @@ HandlerProc:                            ; was JL_0_2EC
 ; cell size, resets cursor/attributes/tab stops and takes the initial
 ; 's' snapshot.
 ;---------------------------------------------------------------------
-ConInit:                                ; was JL_0_458
-        suba.w  #$10,A7
+ConInit:                                ; was JL_0_458 (1.5: grid via MeasureGrid)
         movem.l A5-A6,-(A7)
-        movea.l $1C(A7),A5              ; A5 = con
-        move.l  A5,-(A7)                ; (arg slot reused below)
-        move.l  A6,$18(A7)
+        movea.l $C(A7),A5               ; A5 = con
+        move.l  A5,-(A7)                ; arg for ParserReset / MeasureGrid
         bsr.w   ParserReset
         movea.l con_RastPort(A5),A1
         movea.l g_GfxBase(A4),A6
         moveq   #0,D0
         bsr.w   MapPen                  ; 1.5: ANSI black, not UI pen 0
         jsr     _LVOSetRast(A6)         ; clear window to the background
-        movea.l g_RastPort(A4),A1
-        movea.l rp_Font(A1),A0          ; A0 = font
-        movea.l g_Window(A4),A1         ; A1 = window
-        moveq   #0,D0
-        move.w  tf_YSize(A0),D0
-        move.w  wd_Height(A1),D1
-        ext.l   D1
-        move.l  D0,$14(A7)
-        move.l  D1,D0
-        move.l  $14(A7),D1
-        movea.l $18(A7),A6
-        bsr.w   SDivMod32               ; height / YSize
-        move.w  D0,con_Rows(A5)
-        moveq   #0,D0
-        move.w  tf_XSize(A0),D0
-        move.w  wd_Width(A1),D1
-        ext.l   D1
-        move.l  D0,$C(A7)
-        move.l  D1,D0
-        move.l  $C(A7),D1
-        bsr.w   SDivMod32               ; width / XSize
-        move.w  D0,con_Cols(A5)
-        cmpi.w  #MAX_COLS,D0
-        bls.b   .colsOk                 ; FIXED: clamp the columns to
-        move.w  #MAX_COLS,D0            ;   the tab-stop map / text-run
-        move.w  D0,con_Cols(A5)         ;   buffer capacity
-.colsOk:
-        move.w  wd_Width(A1),D1
-        move.w  D1,con_WidthPx(A5)
         moveq   #1,D1
         move.w  D1,con_Row(A5)          ; home the cursor
         move.w  D1,con_Col(A5)
-        move.w  D1,con_RegTop(A5)       ; FIXED(r): scroll region =
-        move.w  con_Rows(A5),con_RegBot(A5) ; full window
+        bsr.w   MeasureGrid             ; rows, cols, region, tab stops
+        addq.w  #4,A7
+        moveq   #1,D1
+        move.w  D1,con_TextCol(A5)
         clr.l   con_Attrs(A5)
         move.w  con_DefaultPen(A5),con_FgPen(A5)
         clr.w   con_BgPen(A5)
-        move.w  D1,con_TextCol(A5)
         clr.w   con_TextLen(A5)
         clr.b   con_CharMask(A5)
         clr.b   con_SavedMask(A5)
         move.w  con_InitModes(A5),con_Modes(A5)
-        moveq   #0,D1
-        move.w  D0,D1                   ; D0 still = columns
-        addq.l  #1,D1                   ; FIXED: +1 -- HT probes index
-        clr.l   (A7)                    ;   "cols" after incrementing
-        move.l  D1,-(A7)                ; count = columns+1
-        pea     con_TabStops(A5)
-        bsr.w   FillBytes               ; clear the tab stop map
-        lea     $C(A7),A7
-        moveq   #9,D1                   ; tab stops at columns
-        bra.b   .tabCheck               ;   9, 17, 25, ...
-.setTab:
-        moveq   #0,D0
-        move.w  D1,D0
-        addi.l  #con_TabStops,D0
-        move.b  #1,0(A5,D0.L)
-        addq.w  #8,D1
-.tabCheck:
-        cmp.w   con_Cols(A5),D1
-        bcs.b   .setTab
         moveq   #0,D0
         move.w  con_FgPen(A5),D0
         bsr.w   MapPen
@@ -999,11 +954,113 @@ ConInit:                                ; was JL_0_458
         clr.l   -(A7)
         clr.l   -(A7)
         move.l  A5,-(A7)
-        movea.l $20(A7),A6
+        movea.l $10(A7),A6              ; the caller's A6 (saved by movem)
         bsr.w   Csi_s_SaveCursor        ; initialise the 's' snapshot
         lea     $C(A7),A7
         movem.l (A7)+,A5-A6
-        adda.w  #$10,A7
+        rts
+
+;---------------------------------------------------------------------
+; MeasureGrid(con) (1.5) -- rows and columns from the window's drawable
+; area (the inner area of a GimmeZeroZero window, as on the Workbench;
+; 1.4 counted a GZZ window's borders) and the font cell. Scroll region =
+; whole window, cursor kept inside, tab stops every 8 columns from 9.
+; Used by ConInit and, after a window resize, by CheckResize.
+;---------------------------------------------------------------------
+MeasureGrid:
+        movem.l D2-D3/A2/A5,-(A7)
+        movea.l $14(A7),A5              ; con
+        movea.l g_Window(A4),A1
+        move.w  wd_Width(A1),D2
+        move.w  wd_Height(A1),D3
+        btst    #2,wd_Flags+2(A1)       ; WFLG_GIMMEZEROZERO?
+        beq.b   .sized
+        move.w  wd_GZZWidth(A1),D2
+        move.w  wd_GZZHeight(A1),D3
+.sized:
+        move.w  D2,con_WidthPx(A5)
+        move.w  D3,con_HeightPx(A5)
+        movea.l g_RastPort(A4),A2
+        movea.l rp_Font(A2),A2          ; A2 = font (read live)
+        moveq   #0,D0
+        move.w  D3,D0
+        divu    tf_YSize(A2),D0         ; rows = height / YSize
+        tst.w   D0
+        bne.b   .rowsOk
+        moveq   #1,D0
+.rowsOk:
+        move.w  D0,con_Rows(A5)
+        moveq   #0,D0
+        move.w  D2,D0
+        divu    tf_XSize(A2),D0         ; cols = width / XSize
+        tst.w   D0
+        bne.b   .colsSome
+        moveq   #1,D0
+.colsSome:
+        cmpi.w  #MAX_COLS,D0            ; clamp to the tab map / text run
+        bls.b   .colsOk
+        move.w  #MAX_COLS,D0
+.colsOk:
+        move.w  D0,con_Cols(A5)
+        move.w  #1,con_RegTop(A5)       ; scroll region = full window
+        move.w  con_Rows(A5),con_RegBot(A5)
+        move.w  con_Rows(A5),D1         ; keep the cursor inside
+        cmp.w   con_Row(A5),D1
+        bcc.b   .rowIn
+        move.w  D1,con_Row(A5)
+.rowIn:
+        cmp.w   con_Col(A5),D0
+        bcc.b   .colIn
+        move.w  D0,con_Col(A5)
+.colIn:
+        moveq   #0,D1
+        move.w  D0,D1
+        addq.l  #1,D1                   ; +1 -- HT probes index "cols"
+        clr.l   -(A7)                   ; fill value 0
+        move.l  D1,-(A7)                ; count = columns+1
+        pea     con_TabStops(A5)
+        bsr.w   FillBytes
+        lea     $C(A7),A7
+        moveq   #9,D1                   ; tab stops at 9, 17, 25, ...
+        bra.b   .tabCheck
+.setTab:
+        moveq   #0,D0
+        move.w  D1,D0
+        addi.l  #con_TabStops,D0
+        move.b  #1,0(A5,D0.L)
+        addq.w  #8,D1
+.tabCheck:
+        cmp.w   con_Cols(A5),D1
+        bcs.b   .setTab
+        movem.l (A7)+,D2-D3/A2/A5
+        rts
+
+;---------------------------------------------------------------------
+; CheckResize(con) (1.5) -- the window was resized since the grid was
+; measured (a Workbench window): measure it again. Called at every write,
+; with the cursor removed.
+;---------------------------------------------------------------------
+CheckResize:
+        movem.l D2-D3/A5,-(A7)
+        movea.l $10(A7),A5              ; con
+        movea.l g_Window(A4),A1
+        move.w  wd_Width(A1),D2
+        move.w  wd_Height(A1),D3
+        btst    #2,wd_Flags+2(A1)       ; WFLG_GIMMEZEROZERO?
+        beq.b   .sized
+        move.w  wd_GZZWidth(A1),D2
+        move.w  wd_GZZHeight(A1),D3
+.sized:
+        cmp.w   con_WidthPx(A5),D2
+        bne.b   .changed
+        cmp.w   con_HeightPx(A5),D3
+        beq.b   .same
+.changed:
+        move.l  A5,-(A7)
+        bsr.w   MeasureGrid
+        addq.w  #4,A7
+.same:
+        movem.l (A7)+,D2-D3/A5
         rts
 
 ;---------------------------------------------------------------------
@@ -2810,6 +2867,7 @@ ConWrite:                               ; was JL_0_14F6
         move.l  A5,-(A7)
         move.l  A6,$24(A7)
         bsr.w   ToggleCursor            ; remove the cursor block
+        bsr.w   CheckResize             ; 1.5: follow a window resize
         addq.w  #4,A7
         move.l  D7,D0
         addq.l  #1,D0
