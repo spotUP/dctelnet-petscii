@@ -27,3 +27,4 @@ build/DCTelnet*.lha
 # Host-built PETSCII test binaries
 test/test_petscii_*
 !test/test_petscii_*.c
+tools/rtgprobe/rtgprobe
