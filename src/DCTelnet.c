@@ -1204,8 +1204,23 @@ static void ShowEditedColour(int ansi, ULONG rgb)
         SetRGB4(&scr->ViewPort, editPens[ansi], (rgb >> 20) & 0xF, (rgb >> 12) & 0xF, (rgb >> 4) & 0xF);
 }
 
+// The preview swatch right of the colour's name. On a true-colour screen
+// (RTG 15-bit and up) recolouring a pen does not change what is already
+// drawn, so the swatch and the colour picker are drawn again after every
+// change; on 256 colours and fewer they recolour by themselves.
+static struct { WORD x0, y0, x1, y1; } editSwatch;
+
+static void DrawEditPreview(struct Window *w, struct Gadget *picker, int sel)
+{
+    SetAPen(w->RPort, editPens[sel]);
+    SetDrMd(w->RPort, JAM1);
+    RectFill(w->RPort, editSwatch.x0, editSwatch.y0, editSwatch.x1, editSwatch.y1);
+    RefreshGList(picker, w, NULL, 1);
+}
+
 static void ShowSelectedColour(struct Window *w, struct Gadget **gads, const ULONG *rgb, int sel)
 {
+    DrawEditPreview(w, gads[PE_PALETTE], sel);
     GT_SetGadgetAttrs(gads[PE_NAME], w, NULL, GTTX_Text, (ULONG)Palette_Name(sel), TAG_DONE);
     GT_SetGadgetAttrs(gads[PE_RED],   w, NULL, GTSL_Level, Palette_Channel(rgb[sel], 0), TAG_DONE);
     GT_SetGadgetAttrs(gads[PE_GREEN], w, NULL, GTSL_Level, Palette_Channel(rgb[sel], 1), TAG_DONE);
@@ -1279,7 +1294,9 @@ BOOL EditPalette(struct PrefsStruct *target)
             y += 2 * fh + 4 + fh / 2;
             break;
         case PE_NAME:
-            ng.ng_LeftEdge = x0; ng.ng_TopEdge = y; ng.ng_Width = width; ng.ng_Height = fh + 4;
+            ng.ng_LeftEdge = x0; ng.ng_TopEdge = y; ng.ng_Width = width - 9 * cw; ng.ng_Height = fh + 4;
+            editSwatch.x0 = x0 + width - 8 * cw; editSwatch.x1 = x0 + width - 1;
+            editSwatch.y0 = y;                   editSwatch.y1 = y + fh + 3;
             g = CreateGadget(TEXT_KIND, g, &ng, GTTX_Text, (ULONG)Palette_Name(0), GTTX_Border, TRUE, TAG_DONE);
             y += fh + 4 + fh / 2;
             break;
@@ -1290,7 +1307,8 @@ BOOL EditPalette(struct PrefsStruct *target)
             g = CreateGadget(SLIDER_KIND, g, &ng, GTSL_Min, 0, GTSL_Max, 255,
                              GTSL_Level, Palette_Channel(work.ansiRGB[0], i - PE_RED),
                              GTSL_MaxLevelLen, 3, GTSL_LevelFormat, (ULONG)"%3ld",
-                             GTSL_LevelPlace, PLACETEXT_RIGHT, GA_RelVerify, TRUE, TAG_DONE);
+                             GTSL_LevelPlace, PLACETEXT_RIGHT, GA_RelVerify, TRUE,
+                             GA_Immediate, TRUE, TAG_DONE);
             y += fh + 2 + fh / 2;
             break;
         default:        // Use, Default, Cancel in one row
@@ -1314,6 +1332,7 @@ BOOL EditPalette(struct PrefsStruct *target)
     if (pw)
     {
         GT_RefreshWindow(pw, NULL);
+        DrawEditPreview(pw, gads[PE_PALETTE], sel);
         while (!done)
         {
             struct IntuiMessage *m;
@@ -1327,7 +1346,12 @@ BOOL EditPalette(struct PrefsStruct *target)
 
                 GT_ReplyIMsg(m);
                 if (class == IDCMP_CLOSEWINDOW) done = TRUE;
-                else if (class == IDCMP_REFRESHWINDOW) { GT_BeginRefresh(pw); GT_EndRefresh(pw, TRUE); }
+                else if (class == IDCMP_REFRESHWINDOW)
+                {
+                    GT_BeginRefresh(pw);
+                    GT_EndRefresh(pw, TRUE);
+                    DrawEditPreview(pw, gads[PE_PALETTE], sel);
+                }
                 else if (class == IDCMP_GADGETUP || class == IDCMP_MOUSEMOVE || class == IDCMP_GADGETDOWN)
                 {
                     switch (gad->GadgetID)
@@ -1341,11 +1365,12 @@ BOOL EditPalette(struct PrefsStruct *target)
                     case PE_RED: case PE_GREEN: case PE_BLUE:
                         work.ansiRGB[sel] = Palette_WithChannel(work.ansiRGB[sel], gad->GadgetID - PE_RED, (UBYTE)code);
                         ShowEditedColour(sel, work.ansiRGB[sel]);
+                        DrawEditPreview(pw, gads[PE_PALETTE], sel);
                         break;
                     case PE_DEFAULT:
                         Palette_Default(work.ansiRGB);
                         for (i = 0; i < 16; i++) ShowEditedColour(i, work.ansiRGB[i]);
-                        ShowSelectedColour(pw, gads, work.ansiRGB, sel);
+                        ShowSelectedColour(pw, gads, work.ansiRGB, sel);     // redraws the preview
                         break;
                     case PE_USE:
                         memcpy(target->ansiRGB, work.ansiRGB, sizeof(target->ansiRGB));
