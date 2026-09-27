@@ -668,6 +668,7 @@ static struct
     ULONG settingsId;
     char  username[42], password[42];
     char  loginMacro[SITE_LOGIN_MACRO_SIZE];
+    char  finger[64];       // a Finger query ("user@host") instead of a connect
 } pendingConnect;
 
 // Reopen the display when the C64 display it shows no longer matches what
@@ -871,9 +872,20 @@ void SendLoginMacro(const char *macro)
     }
 }
 
+static void StartFinger(char *query);
+
 static void RunPendingConnect(void)
 {
     pendingConnect.active = FALSE;
+    if (pendingConnect.finger[0])       // queued behind the display reopen
+    {
+        static char query[64];
+
+        strlcpy(query, pendingConnect.finger, sizeof(query));
+        pendingConnect.finger[0] = 0;
+        StartFinger(query);
+        return;
+    }
     tcpPort = pendingConnect.port;
     if (BeginServerConnection(pendingConnect.host, pendingConnect.port) == RETURN_OK)
     {
@@ -1672,46 +1684,63 @@ static void ClearScrollBack(void)
     scrollbackList->lh_Head = (struct Node *)&scrollbackList->lh_Tail;
 }
 
+// Send a Finger query ("user@host", modified in place) to host port 79 as a
+// raw connection: plain text, no telnet negotiation.
+static void StartFinger(char *query)
+{
+    char *host = strchr(query, '@');
+    ULONG originalState;
+
+    if (!host)
+        return;
+    originalState = prefs.flags & FLAG_RAW_CONNECTION;
+    *host++ = 0;
+
+    prefs.flags |= FLAG_RAW_CONNECTION;     // Enable flag (NO telnet negotiation)
+    if(BeginServerConnection(host, 79) == RETURN_OK)
+    {
+        WORD optionsMenuNumber = GetMenuNumberFromID(MENU_OPTIONS);
+
+        mysprintf(buf, "/W %s\r\n", query);
+        send(tcpSocket, buf, strlen(buf), 0);
+
+        if (optionsMenuNumber >= 0)
+            OffMenu(win, FULLMENUNUM(optionsMenuNumber, NOITEM, NOSUB));
+
+        isFingerRequest = TRUE;
+    }
+    prefs.flags = (prefs.flags & ~FLAG_RAW_CONNECTION) | originalState;  // Restore state
+}
+
 static void Finger(void)
 {
-    char tbuf[64] = "reiver@plan.cat";
+    static char tbuf[64] = "reiver@plan.cat";
 
     if (GetStringRequester(isRunningOnWB ? NULL : win,
                               "Finger",
                               "Enter EMail Address:",
                               tbuf, sizeof(tbuf))
-       )
+       && strchr(tbuf, '@'))
     {
-        char * host = strchr(tbuf, '@');
-        if(host)
+        // End any entry session (and its connection) BEFORE touching the
+        // flag: ending it later, inside the connect, would restore the
+        // global settings over FLAG_RAW_CONNECTION.
+        // Finger is plain text: no C64 display, whatever PETSCII Mode says.
+        if (isConnected) DisConnect(FALSE, FALSE);
+        EndEntrySession();
+        if (shouldRestart || shouldReopenConsole)
         {
-            ULONG originalState;
+            // The display reopens for the global settings first; a finger
+            // sent now would have its answer wiped by that reopen.
+            strlcpy(pendingConnect.finger, tbuf, sizeof(pendingConnect.finger));
+            pendingConnect.active = TRUE;
+        }
+        else
+        {
+            static char query[64];
 
-            // End any entry session (and its connection) BEFORE touching the
-            // flag: ending it later, inside the connect, would restore the
-            // global settings over FLAG_RAW_CONNECTION.
-            // Finger is plain text: no C64 display, whatever PETSCII Mode says.
-            if (isConnected) DisConnect(FALSE, FALSE);
-            EndEntrySession();
-            originalState = prefs.flags & FLAG_RAW_CONNECTION;
-
-            host[0] = 0;
-            *host++;
-
-            prefs.flags |= FLAG_RAW_CONNECTION;     // Enable flag (NO telnet negotiation)
-            if(BeginServerConnection(host, 79) == RETURN_OK)
-            {
-                WORD optionsMenuNumber = GetMenuNumberFromID(MENU_OPTIONS);
-
-                mysprintf(buf, "/W %s\r\n", tbuf);
-                send(tcpSocket, buf, strlen(buf), 0);
-
-                if (optionsMenuNumber >= 0)
-                    OffMenu(win, FULLMENUNUM(optionsMenuNumber, NOITEM, NOSUB));
-
-                isFingerRequest = TRUE;
-            }
-            prefs.flags = (prefs.flags & ~FLAG_RAW_CONNECTION) | originalState;  // Restore state
+            strlcpy(query, tbuf, sizeof(query));
+            StartFinger(query);
         }
     }
 }
