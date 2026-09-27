@@ -29,3 +29,8 @@ void ScreenFont_Grid(UWORD width, UWORD height, UWORD gzzWidth, UWORD gzzHeight,
     if (*rows == 0) *rows = 1;
     if (*cols > SCREENFONT_MAX_COLS) *cols = SCREENFONT_MAX_COLS;
 }
+
+UWORD ScreenFont_MaxWindowWidth(UWORD columns, UWORD cellX, UWORD borders)
+{
+    return (UWORD)(columns * cellX + borders);
+}

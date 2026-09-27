@@ -985,6 +985,31 @@ static void TerminalGrid(UWORD *cols, UWORD *rows)
                     cell->tf_XSize, cell->tf_YSize, cols, rows);
 }
 
+/**
+ * @brief Keep the Workbench window at most 80 text columns wide (40 in
+ *        PETSCII Mode): BBS art is drawn for exactly that width and wraps at
+ *        its edge. A window already wider is shrunk first; the limit itself
+ *        takes hold on the IDCMP_NEWSIZE that follows, because WindowLimits()
+ *        ignores a maximum below the current width.
+ */
+static void LimitTerminalWidth(void)
+{
+    struct TextFont *cell;
+    UWORD columns, maxWidth;
+
+    if (!isRunningOnWB || !win)
+        return;
+    cell = win->RPort->Font;
+    columns = (cell == petsciiFont || cell == petsciiFontLower)
+            ? SCREENFONT_PETSCII_COLUMNS : SCREENFONT_ANSI_COLUMNS;
+    maxWidth = ScreenFont_MaxWindowWidth(columns, cell->tf_XSize,
+                                         (UWORD)(win->BorderLeft + win->BorderRight));
+    if (win->Width > maxWidth)
+        ChangeWindowBox(win, win->LeftEdge, win->TopEdge, maxWidth, win->Height);
+    else
+        WindowLimits(win, 0, 0, maxWidth, 0);
+}
+
 /*
  * Backfill hook of the terminal window (layers.library protocol: A0 hook,
  * A2 RastPort, A1 message). Whatever the window exposes -- a resize on the
@@ -2453,6 +2478,14 @@ static void GetWindowMsg(struct Window *wwin)
         case IDCMP_NEWSIZE:
             //LocalPrint("\017\233\164\233\165\233\166\233\167");
             if(wwin == scrollbackWin) resize = TRUE;
+            else if (wwin == win)
+            {
+                // A Workbench resize: keep the width limit, and tell the BBS
+                // the new grid so its next screen fits (the console does not
+                // reflow what is already drawn).
+                LimitTerminalWidth();
+                if (isConnected) TelnetSendWindowSize();
+            }
             break;
 
 
@@ -3406,6 +3439,7 @@ static BOOL OpenConsoleDevice(void)
     if(b == RETURN_OK)
     {
         isConDeviceOpened = TRUE;
+        LimitTerminalWidth();       // the font is final now
 
         // ibmcon 1.5: the ANSI colours' own pens. An older ibmcon answers
         // IOERR_NOCMD and keeps pens 0-15.
@@ -3675,7 +3709,7 @@ void OpenAppWindow(void)
         newWin.MinHeight  = 50;
         newWin.MaxWidth   = 1600;
         newWin.MaxHeight  = 1200;
-        newWin.IDCMPFlags = IDCMP_RAWKEY | IDCMP_CLOSEWINDOW | IDCMP_MENUPICK;
+        newWin.IDCMPFlags = IDCMP_RAWKEY | IDCMP_CLOSEWINDOW | IDCMP_MENUPICK | IDCMP_NEWSIZE;
         //newWin.Flags = WFLG_GIMMEZEROZERO|WFLG_NEWLOOKMENUS|WFLG_SIMPLE_REFRESH|WFLG_ACTIVATE|WFLG_CLOSEGADGET|WFLG_DRAGBAR|WFLG_DEPTHGADGET|WFLG_SIZEGADGET;
         newWin.Flags = WFLG_GIMMEZEROZERO|WFLG_NEWLOOKMENUS|WFLG_SMART_REFRESH|WFLG_ACTIVATE|WFLG_CLOSEGADGET|WFLG_DRAGBAR|WFLG_DEPTHGADGET|WFLG_SIZEGADGET;
         // Main window title in windowed workbench mode:

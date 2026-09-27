@@ -32,7 +32,22 @@ static void test_window_size_sent_to_the_bbs_is_the_text_area(void) {
     assert(cols == 199);                                              /* ibmcon's column cap */
 }
 
+/* A Workbench window could be sized wider than 80 columns, and a BBS title
+ * drawn for 80 columns wrapped in the wrong places. The window stops at 80
+ * columns of text (40 in PETSCII Mode) plus its borders; resized back
+ * down, the grid measures 80. */
+static void test_window_stops_at_80_columns(void) {
+    UWORD max = ScreenFont_MaxWindowWidth(SCREENFONT_ANSI_COLUMNS, 8, 22);
+    UWORD cols, rows;
+
+    assert(max == 662);
+    ScreenFont_Grid(max, 200, max - 22, 184, TRUE, 8, 16, &cols, &rows);
+    assert(cols == 80);
+    assert(ScreenFont_MaxWindowWidth(SCREENFONT_PETSCII_COLUMNS, 16, 22) == 662);
+}
+
 int main(void) {
+    test_window_stops_at_80_columns();
     test_topaz_on_square_pixels_becomes_topaz_pro();
     test_window_size_sent_to_the_bbs_is_the_text_area();
     printf("screenfont: all assertions passed\n");

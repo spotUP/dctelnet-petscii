@@ -20,6 +20,13 @@ BOOL ScreenFont_WantsTopazPro(const char *fontname, UWORD resolutionX, UWORD res
 void ScreenFont_Grid(UWORD width, UWORD height, UWORD gzzWidth, UWORD gzzHeight, BOOL gzz,
                      UWORD cellX, UWORD cellY, UWORD *cols, UWORD *rows);
 
+/* BBS art is drawn for a fixed width -- 80 columns of ANSI, 40 of PETSCII
+ * -- and relies on the terminal wrapping at its edge; a wider terminal
+ * breaks it. The widest a window with these borders may be. */
+#define SCREENFONT_ANSI_COLUMNS    80
+#define SCREENFONT_PETSCII_COLUMNS 40
+UWORD ScreenFont_MaxWindowWidth(UWORD columns, UWORD cellX, UWORD borders);
+
 #define TOPAZ_PRO_NAME "TopazPro.font"
 #define TOPAZ_PRO_SIZE 16
 
