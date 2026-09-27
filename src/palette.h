@@ -20,4 +20,7 @@ void Palette_SyncRGB4(struct PrefsStruct *p);
  * with the UI, as before. */
 BOOL Palette_AnsiPens(UWORD depth, UBYTE pens[16]);
 
+/* ibmcon's unit-1 order <-> ANSI order (the swap is its own inverse). */
+int Palette_IbmconToAnsi(int index);
+
 #endif /* PALETTE_H */

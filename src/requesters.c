@@ -1048,7 +1048,7 @@ BOOL ScreenModeRequester(struct Window *parent, ULONG* displayID,
                         ASLSM_DoHeight,       TRUE,
                         ASLSM_DoDepth,        TRUE,
                         ASLSM_MinWidth,       640,
-                        ASLSM_MaxDepth,       4,    // Limit to 4 bitplanes (16 colors) sreen modes
+                        ASLSM_MaxDepth,       32,   // AGA up to 256 colours and RTG high/true colour
 
                         TAG_DONE);
 

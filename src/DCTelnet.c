@@ -284,6 +284,11 @@ static UBYTE drivertype;    // drivertype 0 - normal    1 - xem library
 static BOOL isFingerRequest;        // isFingerRequest?
 
 static UWORD colorPens[]  = { 1,4,1,1,6,4,1,0,5,4,1,6,65535 };
+// 32+ colours: the 16 ANSI colours get pens of their own (Palette_AnsiPens),
+// handed to ibmcon with IBMCMD_SETPENS; the UI keeps pens 0-7.
+static UBYTE ansiPens[16];
+static BOOL  ansiOwnPens = FALSE;
+#define IBMCMD_SETPENS 0x7FE0          // ibmcon.device 1.5
 static UWORD color[] = { 0x0000, 0x0DDD, 0x00D0, 0x0DD0, 0x000D, 0x0D0D, 0x00DD, 0x0D00,
           0x0555, 0x0FFF, 0x00F0, 0x0FF0, 0x000F, 0x0F0F, 0x00FF, 0x0F00, 65535 };
 /*                 black,    white,  green, yellow, blue, purple, aqua,   red */
@@ -921,7 +926,7 @@ BOOL ScreenModeInto(struct PrefsStruct *target)
             if (rtScreenModeRequest (scrmodereq, "Screen Mode..",
                                      RT_Window,    win,
                                      RTSC_Flags,    SCREQF_DEPTHGAD|SCREQF_SIZEGADS|SCREQF_GUIMODES,
-                                     RTSC_MaxDepth,    4,
+                                     RTSC_MaxDepth,    8,
                                      TAG_END))
             {
                 target->DisplayID     = scrmodereq->DisplayID;
@@ -951,12 +956,50 @@ static BOOL ChooseScreen(char firsttime)
 }
 
 /**
- * @brief Palette requester for colors[16] (the live palette, or an Address
- *        Book entry's copy). The requester edits the screen itself, so the
- *        screen shows colors while it is open and gets the live palette back
- *        afterwards when colors is someone else's. TRUE when the user kept it.
+ * @brief The depth of a screen: GetBitMapAttr() on V39+ (an RTG bitmap's
+ *        struct fields are not to be read), struct BitMap below.
  */
-BOOL EditPalette(UWORD colors[16])
+UWORD AppScreenDepth(struct Screen *s)
+{
+    if (GfxBase->LibNode.lib_Version >= 39)
+        return (UWORD)GetBitMapAttr(s->RastPort.BitMap, BMA_DEPTH);
+    return s->BitMap.Depth;
+}
+
+// A pen DCTelnet draws with itself (LEDs, the Quit item), given as an ANSI
+// colour in ibmcon's order: on 32+ colours it lives on the ANSI pens.
+static UWORD LegacyPen(UWORD ibmconIndex)
+{
+    return ansiOwnPens ? ansiPens[Palette_IbmconToAnsi(ibmconIndex)] : ibmconIndex;
+}
+
+// Load target's 16 ANSI colours onto the screen: their own pens (24-bit)
+// on 32+ colours, pens 0-15 (RGB4, ibmcon order) otherwise.
+static void LoadAnsiPalette(struct PrefsStruct *target)
+{
+    if (ansiOwnPens && GfxBase->LibNode.lib_Version >= 39)
+    {
+        UWORD i;
+
+        for (i = 0; i < 16; i++)
+        {
+            ULONG c = target->ansiRGB[i];
+            SetRGB32(&scr->ViewPort, ansiPens[i], ((c >> 16) & 0xFF) * 0x01010101UL,
+                     ((c >> 8) & 0xFF) * 0x01010101UL, (c & 0xFF) * 0x01010101UL);
+        }
+    }
+    else
+        LoadRGB4(&scr->ViewPort, target->color, 16);
+}
+
+/**
+ * @brief Palette requester for target's ANSI colours (the live settings, or
+ *        an Address Book entry's copy). The requester edits the screen
+ *        itself, so the screen shows target's colours while it is open and
+ *        gets the live ones back afterwards. TRUE when the user kept them.
+ *        Both the 24-bit ANSI palette and the RGB4 one are kept in step.
+ */
+BOOL EditPalette(struct PrefsStruct *target)
 {
     APTR reqinfo;
     ULONG reqtoolsTags[5];
@@ -967,20 +1010,33 @@ BOOL EditPalette(UWORD colors[16])
     reqinfo = rtAllocRequestA(RT_REQINFO, NULL);
     if(reqinfo)
     {
-        LoadRGB4(&scr->ViewPort, colors, 16);
+        LoadAnsiPalette(target);
         if(rtPaletteRequestA("Screen Palette..", reqinfo, (struct TagItem *)&reqtoolsTags) != -1)
         {
-            UWORD i = 0;
+            UWORD i;
 
-            while(i < 16)
+            if (ansiOwnPens && GfxBase->LibNode.lib_Version >= 39)
             {
-                colors[i] = GetRGB4(scr->ViewPort.ColorMap, i);
-                i++;
+                ULONG rgb[3];
+
+                for (i = 0; i < 16; i++)
+                {
+                    GetRGB32(scr->ViewPort.ColorMap, ansiPens[i], 1, rgb);
+                    target->ansiRGB[i] = (rgb[0] >> 24) << 16 | (rgb[1] >> 24) << 8 | (rgb[2] >> 24);
+                }
+                Palette_SyncRGB4(target);
+            }
+            else
+            {
+                for (i = 0; i < 16; i++)
+                    target->color[i] = GetRGB4(scr->ViewPort.ColorMap, i);
+                target->ansiMagic = 0;          // re-derive the 24-bit palette
+                Palette_EnsureAnsi(target);
             }
             kept = TRUE;
         }
-        if (colors != prefs.color)
-            LoadRGB4(&scr->ViewPort, prefs.color, 16);
+        if (target != &prefs)
+            LoadAnsiPalette(&prefs);
         rtFreeRequest(reqinfo);
     }
     return kept;
@@ -988,7 +1044,7 @@ BOOL EditPalette(UWORD colors[16])
 
 static void ChoosePalette(void)
 {
-    EditPalette(prefs.color);
+    EditPalette(&prefs);
 }
 
 
@@ -1341,7 +1397,7 @@ void LEDs(void)
         EraseRect(&scr->RastPort, scr->Width-86, 2, scr->Width-74, prefs.fontsize-1);
         if(isConnected)
         {
-            SetAPen(&scr->RastPort, 15);
+            SetAPen(&scr->RastPort, LegacyPen(15));
             RectFill(&scr->RastPort, scr->Width-84, 3, scr->Width-76, prefs.fontsize-2);
         }
     }
@@ -1889,7 +1945,7 @@ int main(int argc, char *argv[])
                     // Draw when Title bar AND LEDs are enabled :
                     if((prefs.flags & (FLAG_HIDE_TITLEBAR | FLAG_HIDE_LEDS)) == 0)
                     {
-                        SetAPen(&scr->RastPort, 10);
+                        SetAPen(&scr->RastPort, LegacyPen(10));
                         RectFill(&scr->RastPort, scr->Width-70, 3, scr->Width-62, prefs.fontsize-2);
                     }
                     Receive();
@@ -2645,7 +2701,7 @@ static void GetWindowMsg(struct Window *wwin)
                         {
                             if(!(prefs.flags & FLAG_HIDE_TITLEBAR))
                             {
-                                SetAPen(&scr->RastPort, 1);
+                                SetAPen(&scr->RastPort, drawInfo->dri_Pens[BARBLOCKPEN]);
                                 RectFill(&scr->RastPort, scr->Width-86, 2, scr->Width-60, prefs.fontsize-1);
                             }
                         }
@@ -3037,7 +3093,7 @@ static UWORD EstablishTCPConnection(char *servername, UWORD port)
     //  Draw connection activity indicator when Title bar AND LEDs are enabled
     if((prefs.flags & (FLAG_HIDE_TITLEBAR | FLAG_HIDE_LEDS)) == 0)
     {
-        SetAPen(&scr->RastPort, 11);
+        SetAPen(&scr->RastPort, LegacyPen(11));
         RectFill(&scr->RastPort, scr->Width-84, 3, scr->Width-76, prefs.fontsize-2);
     }
 
@@ -3272,6 +3328,16 @@ static BOOL OpenConsoleDevice(void)
     if(b == RETURN_OK)
     {
         isConDeviceOpened = TRUE;
+
+        // ibmcon 1.5: the ANSI colours' own pens. An older ibmcon answers
+        // IOERR_NOCMD and keeps pens 0-15.
+        if (ansiOwnPens)
+        {
+            writeConsoleReq->io_Command = IBMCMD_SETPENS;
+            writeConsoleReq->io_Data    = ansiPens;
+            writeConsoleReq->io_Length  = sizeof(ansiPens);
+            DoIO((struct IORequest *)writeConsoleReq);
+        }
     }
     else
     {
@@ -3405,7 +3471,10 @@ struct Screen* OpenAppScreen(void)
         register UWORD *pens;
         static struct NewScreen newscr;
 
-        if(prefs.DisplayDepth < 3) pens = &colorPens[12]; else pens = colorPens;
+        // 32+ colours: the UI keeps Intuition's own pens and colours (the
+        // ANSI colours get pens of their own); fewer: the UI shares the ANSI
+        // pens as before.
+        if(prefs.DisplayDepth < 3 || prefs.DisplayDepth >= 5) pens = &colorPens[12]; else pens = colorPens;
 
         newscr.Width  = prefs.DisplayWidth;
         newscr.Height = prefs.DisplayHeight;
@@ -3422,6 +3491,8 @@ struct Screen* OpenAppScreen(void)
             SA_ShowTitle,    !(prefs.flags & FLAG_HIDE_TITLEBAR),
             SA_AutoScroll,    TRUE,
             SA_Interleaved,    TRUE,
+            SA_SharePens,    TRUE,        // V39: pens beyond the UI stay free
+            SA_FullPalette,  TRUE,        // V39: all colours initialised
             TAG_END);
         /*
         scr = OpenScreenTags(NULL,
@@ -3439,6 +3510,8 @@ struct Screen* OpenAppScreen(void)
                         TAG_END);*/
     }
 
+    // Own screen with 32+ colours: the ANSI colours on pens of their own.
+    ansiOwnPens = scr && !isRunningOnWB && Palette_AnsiPens(AppScreenDepth(scr), ansiPens);
     return scr;
 }
 
@@ -3501,7 +3574,7 @@ void OpenAppWindow(void)
         GetNewMenuItemFromID(MENU_SCREEN_MODE)->nm_Flags = 0;
         GetNewMenuItemFromID(MENU_SCREEN_PALETTE)->nm_Flags = 0;
 
-        LoadRGB4(&scr->ViewPort, (UWORD *)&prefs.color, 16);
+        LoadAnsiPalette(&prefs);
 
         if(prefs.flags & FLAG_TOOL_BAR) OpenToolBarWindow(FALSE);
 
@@ -3642,7 +3715,7 @@ void CreateAppMenus(void)
     if (item != NULL)
     {
         if (prefs.DisplayDepth > 1)
-            ((struct IntuiText *)item->ItemFill)->FrontPen = 15;
+            ((struct IntuiText *)item->ItemFill)->FrontPen = LegacyPen(15);
 
         item->Flags = (item->Flags & ~HIGHFLAGS) | HIGHBOX;
     }

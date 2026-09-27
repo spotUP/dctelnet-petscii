@@ -2,6 +2,18 @@
 #include "palette.h"
 
 /* ibmcon's unit-1 pen order swaps 1<->7 and 9<->15 against ANSI order. */
+int Palette_IbmconToAnsi(int index)
+{
+    switch (index)
+    {
+        case 1:  return 7;
+        case 7:  return 1;
+        case 9:  return 15;
+        case 15: return 9;
+        default: return index;
+    }
+}
+
 static int ibmconIndex(int ansi)
 {
     switch (ansi)
