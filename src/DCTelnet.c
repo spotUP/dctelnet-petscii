@@ -57,6 +57,7 @@ extern struct Library *CyberGfxBase;
 #include "site_prefs.h"
 #include "screenfont.h"
 #include "progdir.h"
+#include "dsr.h"
 #include "shipped.h"
 #ifdef __VBCC__
     #pragma popwarn
@@ -428,6 +429,55 @@ long TCPSend(const char *buf, long len)
     #endif
     nBytesSent += len;
     return len;
+}
+
+#define IBMCMD_GETCURSOR 0x7FE1         // ibmcon.device 1.9: io_Actual = row<<16 | column
+
+// Answer a BBS's Device Status Report request (upstream #11: Absinthe and
+// 20 For Beers stalled waiting for it). CSI 5 n: "OK". CSI 6 n: where the
+// cursor is, asked from ibmcon 1.9; an older ibmcon cannot tell, and gets no
+// answer, as before.
+static void AnswerDsr(int kind)
+{
+    char answer[16];
+    UWORD row = 1, col = 1;
+    size_t n;
+
+    if (kind == DSR_POSITION)
+    {
+        if (drivertype != DRIVER_NORMAL || !isConDeviceOpened || isAppIconified)
+            return;
+        writeConsoleReq->io_Command = IBMCMD_GETCURSOR;
+        writeConsoleReq->io_Data    = NULL;
+        writeConsoleReq->io_Length  = 0;
+        DoIO((struct IORequest *)writeConsoleReq);
+        if (writeConsoleReq->io_Error)
+            return;
+        row = (UWORD)(writeConsoleReq->io_Actual >> 16);
+        col = (UWORD)(writeConsoleReq->io_Actual & 0xFFFF);
+    }
+    n = Dsr_Answer(kind, row, col, answer, sizeof(answer));
+    if (n)
+        TCPSend(answer, (long)n);
+}
+
+// A BBS's text to the console. The text up to a Device Status Report
+// request is drawn first, so the position answered is the one asked about.
+static struct DsrScan bbsDsr;
+
+static void BbsWrite(char *data, long len)
+{
+    while (len > 0)
+    {
+        int kind;
+        size_t n = Dsr_Find(&bbsDsr, (const UBYTE *)data, (size_t)len, &kind);
+
+        ConWrite(data, (long)n);
+        if (kind != DSR_NONE && isConnected)
+            AnswerDsr(kind);
+        data += n;
+        len  -= (long)n;
+    }
 }
 
 
@@ -1645,7 +1695,7 @@ static void Receive(void)
 
     if (prefs.flags & FLAG_RAW_CONNECTION)
     {
-        ConWrite(recvBuffer, len);
+        BbsWrite(recvBuffer, len);
         if(!(prefs.flags & FLAG_DISABLE_SCROLLBACK))   AddBuf(recvBuffer, len);
 
         for (i = 0; i < len; i++)
@@ -1724,7 +1774,7 @@ static void Receive(void)
             }
             else
             {
-                ConWrite(outBuffer, outLen);
+                BbsWrite(outBuffer, outLen);
 
                 if(!(prefs.flags & FLAG_DISABLE_SCROLLBACK))
                     AddBuf(outBuffer, outLen);
