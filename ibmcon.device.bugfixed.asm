@@ -425,7 +425,9 @@ con_SavedMask       EQU $208    ; 's'/'u' snapshot of con_CharMask
 con_PenMap          EQU $20A    ; 16 bytes: logical ANSI pen -> screen pen
 con_PenMapOn        EQU $21A    ; word: <>0 once a client sent IBMCMD_SETPENS
 con_HeightPx        EQU $21C    ; drawable height when the grid was measured
-CON_FRAME           EQU $224    ; handler stack frame holding con (was $210)
+con_WrapPending     EQU $21E    ; 1.5: word, <>0 = a character filled the last
+                                ;   column; the next printable wraps first
+CON_FRAME           EQU $226    ; handler stack frame holding con (was $210)
 
 ;=====================================================================
         SECTION "Segment0",CODE
@@ -481,9 +483,9 @@ DevInit:                                ; was AJL_0_20
         move.l  A1,D0
         lea     LIB_VERSION(A5),A3
         move.w  D0,(A3)+                ; lib_Version  = 1
-        lea     5,A1                    ; 1.5: revision 5 (pen table)
+        lea     6,A1                    ; 1.6: revision 6 (deferred wrap)
         move.l  A1,D0
-        move.w  D0,(A3)+                ; lib_Revision = 5
+        move.w  D0,(A3)+                ; lib_Revision = 6
         move.l  #DevIdString,(A3)+      ; lib_IdString
         lea     dev_RelocTab(A5),A3
         clr.l   (A3)+                   ; dev_RelocTab = NULL
@@ -929,6 +931,7 @@ ConInit:                                ; was JL_0_458 (1.5: grid via MeasureGri
         move.w  D1,con_Col(A5)
         bsr.w   MeasureGrid             ; rows, cols, region, tab stops
         addq.w  #4,A7
+        clr.w   con_WrapPending(A5)
         moveq   #1,D1
         move.w  D1,con_TextCol(A5)
         clr.l   con_Attrs(A5)
@@ -1000,6 +1003,7 @@ MeasureGrid:
         move.w  #MAX_COLS,D0
 .colsOk:
         move.w  D0,con_Cols(A5)
+        clr.w   con_WrapPending(A5)     ; a new grid: no wrap due
         move.w  #1,con_RegTop(A5)       ; scroll region = full window
         move.w  con_Rows(A5),con_RegBot(A5)
         move.w  con_Rows(A5),D1         ; keep the cursor inside
@@ -3014,6 +3018,11 @@ ConWrite:                               ; was JL_0_14F6
         bra.w   .nextChar
 
 .dispatch:                              ; --- final char: run handler -
+        moveq   #'m',D0                 ; 1.5: every sequence but SGR
+        cmp.b   D0,D4                   ;   (colour at the line's edge)
+        beq.b   .wrapKept               ;   cancels a deferred wrap
+        clr.w   con_WrapPending(A5)
+.wrapKept:
         moveq   #0,D5                   ; D5 = table index
         bra.b   .entryLoop
 .tryEntry:
@@ -3116,6 +3125,7 @@ ConWrite:                               ; was JL_0_14F6
         movea.l $20(A7),A6
         bra.w   .nextChar
 .backspace:
+        clr.w   con_WrapPending(A5)     ; moves the cursor: no wrap due
         move.w  con_Col(A5),D0
         moveq   #1,D1
         cmp.w   D1,D0
@@ -3131,11 +3141,13 @@ ConWrite:                               ; was JL_0_14F6
         tst.b   0(A5,D1.L)              ; landed on a tab stop?
         bne.w   .nextChar
 .tab:
+        clr.w   con_WrapPending(A5)     ; moves the cursor: no wrap due
         move.w  con_Col(A5),D0
         cmp.w   con_Cols(A5),D0
         bcs.b   .tabStep                ; advance until stop or edge
         bra.w   .nextChar
 .linefeed:
+        clr.w   con_WrapPending(A5)     ; moves the cursor: no wrap due
         btst    #0,con_ModeFlags(A5)    ; LNM set?
         beq.b   .lfPlain
         clr.l   -(A7)
@@ -3152,6 +3164,7 @@ ConWrite:                               ; was JL_0_14F6
         lea     $C(A7),A7
         bra.w   .nextChar
 .vertTab:
+        clr.w   con_WrapPending(A5)     ; moves the cursor: no wrap due
         clr.l   -(A7)
         pea     g_ParamOne5(A4)         ; VT = up 1
         move.l  A5,-(A7)
@@ -3159,21 +3172,32 @@ ConWrite:                               ; was JL_0_14F6
         lea     $C(A7),A7
         bra.w   .nextChar
 .formfeed:
+        clr.w   con_WrapPending(A5)     ; moves the cursor: no wrap due
         move.l  A5,-(A7)                ; FF = clear screen + home
         bsr.w   ClearScreenHome
         addq.w  #4,A7
         bra.w   .nextChar
 .carriageRet:
+        clr.w   con_WrapPending(A5)     ; moves the cursor: no wrap due
         move.w  #1,con_Col(A5)
-        bra.b   .nextChar
+        bra.w   .nextChar
 .shiftOut:
         move.b  #$80,con_CharMask(A5)   ; SO: IBM upper charset
-        bra.b   .nextChar
+        bra.w   .nextChar
 .shiftIn:
         clr.b   con_CharMask(A5)        ; SI: back to lower charset
         bra.b   .nextChar
 
 .printable:
+        tst.w   con_WrapPending(A5)     ; 1.5: deferred wrap -- the last
+        beq.b   .noWrapDue              ;   column was filled: this
+        clr.w   con_WrapPending(A5)     ;   character starts the next
+        clr.l   -(A7)                   ;   line (CR + down 1, scrolls)
+        pea     g_ParamOne6(A4)
+        move.l  A5,-(A7)
+        bsr.w   Csi_E_NextLine
+        lea     $C(A7),A7
+.noWrapDue:
         move.w  con_TextLen(A5),D0      ; first char of a run:
         bne.b   .append                 ;   remember the start column
         move.w  con_Col(A5),D1
@@ -3195,14 +3219,12 @@ ConWrite:                               ; was JL_0_14F6
         addq.w  #4,A7
         btst    #1,con_ModeFlags(A5)    ; auto-wrap?
         beq.b   .stickRight
-        clr.l   -(A7)
-        pea     g_ParamOne6(A4)         ; CR + down 1
-        move.l  A5,-(A7)
-        bsr.w   Csi_E_NextLine
-        lea     $C(A7),A7
-        bra.b   .nextChar
+        move.w  #1,con_WrapPending(A5)  ; 1.5 FIXED: wrap when the next
+                                        ;   printable comes (VT100/ANSI
+                                        ;   terminals): an 80-column line
+                                        ;   followed by CR LF was two lines
 .stickRight:
-        move.w  con_Cols(A5),con_Col(A5) ; no wrap: park at the edge
+        move.w  con_Cols(A5),con_Col(A5) ; park at the edge
         bra.w   .nextChar
 .runCheck:
         cmpi.w  #TEXTBUF_SIZE,con_TextLen(A5) ; FIXED: never let a run
@@ -3930,7 +3952,7 @@ DevName:                                ; was AL_2_1C
         dc.b    "ibmcon.device",0,0
         dc.b    0
 DevIdString:                            ; was AL_2_2C
-        dc.b    "ibmcon.device 1.5",0,0
+        dc.b    "ibmcon.device 1.6",0,0
         dc.b    0
 
 ;=====================================================================
@@ -3944,7 +3966,7 @@ DevIdString:                            ; was AL_2_2C
 GlobalsInit:                            ; was SegmentBeginn3
         ds.l    1                       ; $000: (unused)
         dc.b    0                       ; $004
-        dc.b    "$VER: ibmcon.device 1.5 (Sep 27 2026)",0,0
+        dc.b    "$VER: ibmcon.device 1.6 (Sep 27 2026)",0,0
 
 ;--- $02C: CSI dispatch table ----------------------------------------
 ; 6 bytes per entry: function pointer, prefix char (0 = none), final
