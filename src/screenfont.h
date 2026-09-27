@@ -34,6 +34,7 @@ void ScreenFont_Grid(UWORD width, UWORD height, UWORD gzzWidth, UWORD gzzHeight,
  * breaks it. The widest a window with these borders may be. */
 #define SCREENFONT_ANSI_COLUMNS    80
 #define SCREENFONT_PETSCII_COLUMNS 40
+#define SCREENFONT_BBS_ROWS        25   /* the Workbench window opens 80x25 (40x25) */
 UWORD ScreenFont_MaxWindowWidth(UWORD columns, UWORD cellX, UWORD borders);
 
 #define TOPAZ_PRO_NAME "TopazPro.font"

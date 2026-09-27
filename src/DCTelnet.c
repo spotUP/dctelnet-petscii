@@ -163,7 +163,8 @@ static struct NewMenu mainMenuDesc[] =
 
 static void GetWindowMsg(struct Window *wwin);
 static void SendMisc(char *str, long len);
-static void SwitchPetsciiDisplay(void);
+static void ReopenTerminal(void);
+static void OpenAnsiFont(void);
 static void ResetTelnetContext(void);
 static void ResetZmodemContext(void);
 static void SetLocalEchoBack(BOOL wantedState);
@@ -191,6 +192,11 @@ static struct TextFont *petsciiFontLower = NULL; // shifted/lowercase charset fo
 // setup are up only while a connection is being made or live (connectionDisplay)
 // with PETSCII Mode on. Start-up and disconnected text keep the normal font.
 static BOOL connectionDisplay = FALSE;   // a connection is being prepared or is live
+// The Workbench window's place when the display was last closed: a reopen
+// (an entry's settings, a font change) keeps it. The saved place
+// (prefs.win_*) is only what Snapshot Windows stored.
+static struct IBox wbWindowBox;
+static BOOL wbWindowBoxValid = FALSE;
 static BOOL displayIsPetscii = FALSE;    // the display was opened for PETSCII
 #define PETSCII_SESSION() (connectionDisplay && (prefs.flags & FLAG_PETSCII_MODE))
 static BOOL isConDeviceOpened = FALSE;
@@ -656,15 +662,44 @@ static struct
 static void SyncPetsciiDisplay(void)
 {
     if ((PETSCII_SESSION() != 0) != displayIsPetscii)
-        shouldReopenConsole = TRUE;     // SwitchPetsciiDisplay() in the main loop
+        shouldReopenConsole = TRUE;     // ReopenTerminal() in the main loop
+}
+
+// The screen mode's pixel shape (DisplayInfo.Resolution), from OpenAppScreen:
+// which of topaz and Topaz Pro a font setting opens as (ScreenFont_ForMode).
+static UWORD modeResX, modeResY;
+
+// The font a setting actually opens on the current mode.
+static void EffectiveFont(struct PrefsStruct *p)
+{
+    struct ScreenFontChoice pick;
+
+    ScreenFont_ForMode(p->fontname, p->fontsize, modeResX, modeResY, &pick);
+    if (pick.name != p->fontname)
+        strlcpy(p->fontname, pick.name, sizeof(p->fontname));
+    p->fontsize = pick.size;
 }
 
 static void RequestDisplayReopen(const struct PrefsStruct *before)
 {
+    // Compared as they open: topaz and Topaz Pro are one face, so an entry
+    // naming the other one reopens nothing.
+    static struct PrefsStruct was, now;
     BOOL reopenScreen;
 
-    if (SitePrefs_DisplayDiffers(before, &prefs, &reopenScreen))
+    was = *before;
+    now = prefs;
+    EffectiveFont(&was);
+    EffectiveFont(&now);
+    if (SitePrefs_DisplayDiffers(&was, &now, &reopenScreen))
     {
+        // On the Workbench a new font or palette needs only the console
+        // reopened (ReopenTerminal); the window stays.
+        if (isRunningOnWB && SitePrefs_OnlyLookDiffers(&was, &now))
+        {
+            shouldReopenConsole = TRUE;
+            return;
+        }
         shouldRestart = TRUE;
         if (reopenScreen) shouldReopenScreen = TRUE;
     }
@@ -987,6 +1022,36 @@ static void TerminalGrid(UWORD *cols, UWORD *rows)
                     cell->tf_XSize, cell->tf_YSize, cols, rows);
 }
 
+// The columns BBS art is drawn for in this font: 40 in the C64 fonts, else 80.
+static UWORD ArtColumns(struct TextFont *cell)
+{
+    return (cell == petsciiFont || cell == petsciiFontLower)
+         ? SCREENFONT_PETSCII_COLUMNS : SCREENFONT_ANSI_COLUMNS;
+}
+
+/**
+ * @brief Size the Workbench window to cols x rows characters of its current
+ *        font (the BBS size is 80x25), kept on the screen. Waits for
+ *        Intuition to apply it (at most a second).
+ */
+static void SizeWorkbenchWindow(UWORD cols, UWORD rows)
+{
+    struct TextFont *cell = win->RPort->Font;
+    WORD width  = (WORD)(cols * cell->tf_XSize + win->BorderLeft + win->BorderRight);
+    WORD height = (WORD)(rows * cell->tf_YSize + win->BorderTop + win->BorderBottom);
+    WORD left = win->LeftEdge, top = win->TopEdge;
+    int wait;
+
+    if (width > scr->Width)   width = scr->Width;
+    if (height > scr->Height) height = scr->Height;
+    if (left + width > scr->Width)   left = scr->Width - width;
+    if (top + height > scr->Height)  top = scr->Height - height;
+    WindowLimits(win, 0, 0, (UWORD)width, (UWORD)height);   // room to grow (LimitTerminalWidth resets it)
+    ChangeWindowBox(win, left, top, width, height);
+    for (wait = 0; wait < 50 && (win->Width != width || win->Height != height); wait++)
+        Delay(1);
+}
+
 /**
  * @brief Keep the terminal at most 80 text columns wide (40 in PETSCII
  *        Mode): BBS art is drawn for exactly that width and wraps at its
@@ -1004,8 +1069,7 @@ static void LimitTerminalWidth(void)
     if (!win)
         return;
     cell = win->RPort->Font;
-    columns = (cell == petsciiFont || cell == petsciiFontLower)
-            ? SCREENFONT_PETSCII_COLUMNS : SCREENFONT_ANSI_COLUMNS;
+    columns = ArtColumns(cell);
     maxWidth = ScreenFont_MaxWindowWidth(columns, cell->tf_XSize,
                                          (UWORD)(win->BorderLeft + win->BorderRight));
     if (isRunningOnWB)
@@ -2064,7 +2128,13 @@ int main(int argc, char *argv[])
                 if(packetWin) sig |= 1L << packetWin->UserPort->mp_SigBit;
                 if (toolBarWin) sig |= 1L << toolBarWin->UserPort->mp_SigBit;
 
-                sigmask = Wait( sig | winsig | SIGBREAKF_CTRL_C );
+                // A display reopen or a connect already queued (an entry's
+                // settings, PETSCII Mode) runs now, not after the next event.
+                if (shouldRestart || shouldReopenConsole || pendingConnect.active)
+                    sigmask = SetSignal(0L, sig | winsig | SIGBREAKF_CTRL_C)
+                            & (sig | winsig | SIGBREAKF_CTRL_C);
+                else
+                    sigmask = Wait( sig | winsig | SIGBREAKF_CTRL_C );
 
                 if(scrollbackWin)
                 {
@@ -2095,7 +2165,7 @@ int main(int argc, char *argv[])
             }
             else if (shouldReopenConsole)
             {
-                SwitchPetsciiDisplay();
+                ReopenTerminal();
                 shouldReopenConsole = FALSE;
             }
 
@@ -3001,6 +3071,8 @@ static void GetWindowMsg(struct Window *wwin)
                         break;
 
                     case MENU_SNAPSHOT_WINDOWS:
+                        if (isRunningOnWB)      // this size, not the 80x25 BBS default
+                            prefs.flags |= FLAG_WINDOW_SNAPSHOT;
                         prefs.win_top = win->TopEdge;
                         prefs.win_left = win->LeftEdge;
                         prefs.win_height = win->Height;
@@ -3569,7 +3641,7 @@ static void CloseConsoleDevice(void)
  *        reads the RastPort font live). The XEM library takes its font at
  *        setup, so an XEM display takes the full reopen instead.
  */
-static void SwitchPetsciiDisplay(void)
+static void ReopenTerminal(void)
 {
     if (drivertype != DRIVER_NORMAL || !win)
     {
@@ -3577,10 +3649,22 @@ static void SwitchPetsciiDisplay(void)
         shouldReopenScreen = TRUE;
         return;
     }
-    CloseConsoleDevice();
-    ClosePetsciiFonts();
-    OpenPetsciiFonts();
-    SetFont(win->RPort, petsciiFont ? petsciiFont : ansiFont);
+    {
+        struct TextFont *oldAnsi = ansiFont;
+        UWORD cols, rows;
+        BOOL bbsSize;
+
+        TerminalGrid(&cols, &rows);
+        bbsSize = isRunningOnWB && cols == ArtColumns(win->RPort->Font) && rows == SCREENFONT_BBS_ROWS;
+        CloseConsoleDevice();
+        OpenAnsiFont();                 // the settings' font (an entry's, the global one)
+        ClosePetsciiFonts();
+        OpenPetsciiFonts();
+        SetFont(win->RPort, petsciiFont ? petsciiFont : ansiFont);
+        if (oldAnsi) CloseFont(oldAnsi);
+        if (bbsSize)                    // still the BBS size: stays it in the new font
+            SizeWorkbenchWindow(ArtColumns(win->RPort->Font), SCREENFONT_BBS_ROWS);
+    }
     if (!OpenConsoleDevice())
     {
         shouldRestart = TRUE;       // could not reopen it in place: reopen everything
@@ -3591,20 +3675,17 @@ static void SwitchPetsciiDisplay(void)
         ConWrite(PETSCII_CONSOLE_SETUP, sizeof(PETSCII_CONSOLE_SETUP) - 1);
 }
 
-struct Screen* OpenAppScreen(void)
+/**
+ * @brief Open the terminal's ANSI font for the settings in use (ansiFont,
+ *        fontAttr): topaz and Topaz Pro are one face -- Topaz Pro on square
+ *        pixels (every RTG mode), topaz on the Amiga's tall ones -- for the
+ *        screen (title bar, menus) and the terminal alike.
+ */
+static void OpenAnsiFont(void)
 {
-    struct Screen *scr;
-
-    if(prefs.flags & FLAG_USE_WORKBENCH) isRunningOnWB = TRUE;
-    else isRunningOnWB = FALSE;
-
     fontAttr.ta_Name = prefs.fontname;
     fontAttr.ta_YSize = prefs.fontsize;
     ansiFont = NULL;
-
-    // topaz and Topaz Pro are one face: Topaz Pro on square pixels (every
-    // RTG mode), topaz on the Amiga's tall ones -- for the screen (title
-    // bar, menus) and the terminal alike.
     {
         struct DisplayInfo di;
         struct ScreenFontChoice pick;
@@ -3624,6 +3705,8 @@ struct Screen* OpenAppScreen(void)
             resX = (UWORD)di.Resolution.x;
             resY = (UWORD)di.Resolution.y;
         }
+        modeResX = resX;
+        modeResY = resY;
         ScreenFont_ForMode(prefs.fontname, prefs.fontsize, resX, resY, &pick);
         fontAttr.ta_Name  = (STRPTR)pick.name;
         fontAttr.ta_YSize = pick.size;
@@ -3638,7 +3721,16 @@ struct Screen* OpenAppScreen(void)
         fontAttr.ta_YSize = 8;
         ansiFont = OpenFont(&fontAttr);
     }
+}
 
+struct Screen* OpenAppScreen(void)
+{
+    struct Screen *scr;
+
+    if(prefs.flags & FLAG_USE_WORKBENCH) isRunningOnWB = TRUE;
+    else isRunningOnWB = FALSE;
+
+    OpenAnsiFont();
     OpenPetsciiFonts();
 
     if (isRunningOnWB)
@@ -3732,6 +3824,13 @@ void OpenAppWindow(void)
         newWin.TopEdge    = prefs.win_top;
         newWin.Width      = prefs.win_width;
         newWin.Height     = prefs.win_height;
+        if (wbWindowBoxValid)   // a reopen: where the window was, not the snapshot
+        {
+            newWin.LeftEdge = wbWindowBox.Left;
+            newWin.TopEdge  = wbWindowBox.Top;
+            newWin.Width    = wbWindowBox.Width;
+            newWin.Height   = wbWindowBox.Height;
+        }
         newWin.MinWidth   = 200;
         newWin.MinHeight  = 50;
         newWin.MaxWidth   = 1600;
@@ -3745,7 +3844,20 @@ void OpenAppWindow(void)
 
         CheckDimensions(&newWin);
 
-        win = OpenWindowTags(&newWin, WA_BackFill, (ULONG)&terminalBackFill, TAG_END);
+        {
+            // No snapshot and not a reopen: the BBS size, 80x25 characters
+            // (40x25 in PETSCII Mode) of the terminal's font, on any mode.
+            struct TextFont *cell = petsciiFont ? petsciiFont : ansiFont;
+            BOOL bbsSize = !wbWindowBoxValid && !(prefs.flags & FLAG_WINDOW_SNAPSHOT);
+
+            win = OpenWindowTags(&newWin, WA_BackFill, (ULONG)&terminalBackFill,
+                                 bbsSize ? WA_InnerWidth : TAG_IGNORE,
+                                     (ULONG)(ArtColumns(cell) * cell->tf_XSize),
+                                 bbsSize ? WA_InnerHeight : TAG_IGNORE,
+                                     (ULONG)(SCREENFONT_BBS_ROWS * cell->tf_YSize),
+                                 WA_AutoAdjust, TRUE,
+                                 TAG_END);
+        }
 
         // Be sure to unlock the public screen when done with it.  Note that once a window is open
         // on the screen the program does not need to hold the screen lock, as the window acts as a
@@ -4143,6 +4255,14 @@ void CloseDisplay(BOOL manageScreen)
 
     if(win)
     {
+        if (isRunningOnWB)      // a reopen puts it back here (Snapshot Windows saves it)
+        {
+            wbWindowBox.Left   = win->LeftEdge;
+            wbWindowBox.Top    = win->TopEdge;
+            wbWindowBox.Width  = win->Width;
+            wbWindowBox.Height = win->Height;
+            wbWindowBoxValid = TRUE;
+        }
         ClearMenuStrip(win);
         CloseWindow(win);
         win = NULL;

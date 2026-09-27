@@ -263,6 +263,21 @@ static void test_differing_groups_names_what_changed(void) {
     assert(SitePrefs_DifferingGroups(&a, &b, keysA, keysB) == (SITE_GROUP_KEYBOARD | SITE_GROUP_TERMINAL));
 }
 
+/* Connecting to an entry with its own font on the Workbench closed and
+ * reopened the window; a font or palette change needs only the console
+ * reopened. Anything else about the display still takes the full reopen. */
+static void test_font_or_palette_change_is_a_look_change(void) {
+    struct PrefsStruct a = make(FLAG_USE_WORKBENCH, "topaz.font", 8), b = a;
+
+    strcpy(b.fontname, "IBM.font"); b.fontsize = 16;
+    b.ansiRGB[1] = 0x00AA0000;
+    assert(SitePrefs_OnlyLookDiffers(&a, &b));
+    b.flags |= FLAG_TOOL_BAR;                       /* a window change */
+    assert(!SitePrefs_OnlyLookDiffers(&a, &b));
+    b = a; strcpy(b.displaydriver, "xemvt340.library");
+    assert(!SitePrefs_OnlyLookDiffers(&a, &b));
+}
+
 /* The settings window's one-line summary per group. */
 static void test_group_summaries(void) {
     struct PrefsStruct p = make(FLAG_PETSCII_MODE | FLAG_BS_DEL_SWAP, "Petscii.font", 8);
@@ -318,6 +333,7 @@ static void test_a_dcs2_file_loads_with_its_palette_converted(void) {
 int main(void) {
     test_a_dcs2_file_loads_with_its_palette_converted();
     test_differing_groups_names_what_changed();
+    test_font_or_palette_change_is_a_look_change();
     test_group_summaries();
     test_entry_function_keys_swap_in_and_back();
     test_login_macro_expands_codes();

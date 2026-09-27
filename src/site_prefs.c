@@ -114,6 +114,20 @@ BOOL SitePrefs_DisplayDiffers(const struct PrefsStruct *a, const struct PrefsStr
     return *reopenScreen || windows;
 }
 
+BOOL SitePrefs_OnlyLookDiffers(const struct PrefsStruct *a, const struct PrefsStruct *b)
+{
+    static struct PrefsStruct look;
+    BOOL reopenScreen;
+
+    look = *a;
+    look.fontsize = b->fontsize;
+    memcpy(look.fontname, b->fontname, sizeof(look.fontname));
+    memcpy(look.color, b->color, sizeof(look.color));
+    look.ansiMagic = b->ansiMagic;
+    memcpy(look.ansiRGB, b->ansiRGB, sizeof(look.ansiRGB));
+    return !SitePrefs_DisplayDiffers(&look, b, &reopenScreen);
+}
+
 static const UBYTE MAGIC_V1[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '1' };
 static const UBYTE MAGIC_V2[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '2' };
 static const UBYTE MAGIC_V3[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '3' };

@@ -69,5 +69,7 @@ struct PrefsStruct
 #define FLAG_RAW_CONNECTION      (1UL << 13)  // BIT 13 = Raw Connection (NO telnet negotiation data)
 #define FLAG_JUMP_SCROLL         (1UL << 14)  // BIT 14 = Jump Scroll
 #define FLAG_PETSCII_MODE        (1UL << 15)  // BIT 15 = PETSCII emulation (C64/C128)
+#define FLAG_WINDOW_SNAPSHOT     (1UL << 16)  // BIT 16 = win_* hold a Snapshot Windows size;
+                                              //          clear: the Workbench window opens 80x25
 
 #endif /* PREFS_H */
