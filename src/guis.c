@@ -1102,7 +1102,7 @@ static void UseCurrentForGroup(struct SiteSettings *work, ULONG group, BOOL *cap
  */
 static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry, BOOL *captureXem)
 {
-    static struct SiteSettings work;
+    static struct SiteSettings work, undo;
     static char title[64];
     struct NewGadget ng;
     struct Gadget *g;
@@ -1195,18 +1195,23 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
                 case SG_KEY_CUR:    UseCurrentForGroup(&work, SITE_GROUP_KEYBOARD, captureXem); break;
                 case SG_XFER_CUR:   UseCurrentForGroup(&work, SITE_GROUP_TRANSFER, captureXem); break;
 
+                // A requester button seeds the group (so the requester starts from
+                // the values shown) and keeps the change only when not cancelled.
                 case SG_SCREEN_MODE:
+                    undo = work;
                     OverrideGroup(&work, SITE_GROUP_SCREEN);
-                    ScreenModeInto(&work.prefs);
+                    if (!ScreenModeInto(&work.prefs)) work = undo;
                     break;
                 case SG_SCREEN_FONT:
+                    undo = work;
                     OverrideGroup(&work, SITE_GROUP_SCREEN);
-                    FontRequester(settingsWnd, work.prefs.fontname, sizeof(work.prefs.fontname),
-                                  &work.prefs.fontsize);
+                    if (!FontRequester(settingsWnd, work.prefs.fontname, sizeof(work.prefs.fontname),
+                                       &work.prefs.fontsize)) work = undo;
                     break;
                 case SG_SCREEN_PALETTE:
+                    undo = work;
                     OverrideGroup(&work, SITE_GROUP_SCREEN);
-                    EditPalette(work.prefs.color);
+                    if (!EditPalette(work.prefs.color)) work = undo;
                     break;
                 case SG_SCREEN_WB:
                     SetFlagFromGadget(&work, SITE_GROUP_SCREEN, SG_SCREEN_WB, FLAG_USE_WORKBENCH);
@@ -1225,14 +1230,18 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
                     SetFlagFromGadget(&work, SITE_GROUP_TERMINAL, SG_TERM_ECHO, FLAG_LOCAL_ECHO);
                     break;
                 case SG_TERM_XEMLIB:
+                    undo = work;
                     OverrideGroup(&work, SITE_GROUP_TERMINAL);
-                    FileRequester(settingsWnd, "LIBS:", 0, work.prefs.displaydriver,
-                                  sizeof(work.prefs.displaydriver), "xem#?.library", FILEREQ_LOAD);
+                    if (!FileRequester(settingsWnd, "LIBS:", 0, work.prefs.displaydriver,
+                                       sizeof(work.prefs.displaydriver), "xem#?.library", FILEREQ_LOAD))
+                        work = undo;
                     break;
                 case SG_TERM_DISPID:
+                    undo = work;
                     OverrideGroup(&work, SITE_GROUP_TERMINAL);
-                    GetStringRequester(settingsWnd, "Telnet Display ID...", "Term type:",
-                                       work.prefs.displayidstr, sizeof(work.prefs.displayidstr));
+                    if (!GetStringRequester(settingsWnd, "Telnet Display ID...", "Term type:",
+                                            work.prefs.displayidstr, sizeof(work.prefs.displayidstr)))
+                        work = undo;
                     break;
 
                 case SG_KEY_BSDEL:
@@ -1242,19 +1251,24 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
                     SetFlagFromGadget(&work, SITE_GROUP_KEYBOARD, SG_KEY_CRLF, FLAG_RETURN_CRLF);
                     break;
                 case SG_KEY_FKEYS:
+                    undo = work;
                     OverrideGroup(&work, SITE_GROUP_KEYBOARD);
-                    EditFunctionKeys(work.fKeys, title);
+                    if (!EditFunctionKeys(work.fKeys, title)) work = undo;
                     break;
 
                 case SG_XFER_PROTO:
+                    undo = work;
                     OverrideGroup(&work, SITE_GROUP_TRANSFER);
-                    FileRequester(settingsWnd, "LIBS:", 0, work.prefs.xferlibrary,
-                                  sizeof(work.prefs.xferlibrary), "xpr#?.library", FILEREQ_LOAD);
+                    if (!FileRequester(settingsWnd, "LIBS:", 0, work.prefs.xferlibrary,
+                                       sizeof(work.prefs.xferlibrary), "xpr#?.library", FILEREQ_LOAD))
+                        work = undo;
                     break;
                 case SG_XFER_OPTS:
+                    undo = work;
                     OverrideGroup(&work, SITE_GROUP_TRANSFER);
-                    GetStringRequester(settingsWnd, "XPR Protocol Options..", "Options string:",
-                                       work.prefs.xferinit, sizeof(work.prefs.xferinit));
+                    if (!GetStringRequester(settingsWnd, "XPR Protocol Options..", "Options string:",
+                                            work.prefs.xferinit, sizeof(work.prefs.xferinit)))
+                        work = undo;
                     break;
 
                 case SG_OK:     done = TRUE; ok = TRUE; break;
