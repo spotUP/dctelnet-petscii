@@ -214,6 +214,9 @@ struct PrefsStruct prefs;         // live settings: what every part of DCTelnet 
 // sessionSettingsId != 0.
 struct PrefsStruct globalPrefs;
 ULONG sessionSettingsId = 0;      // settings id of the connected entry, 0 = global settings
+// The global function keys, kept aside while an entry's own (Keyboard group) are live.
+static TEXT globalFKeys[F_KEY_COUNT * F_KEY_SIZE];
+static BOOL fKeysFromEntry = FALSE;
 // An entry's settings file stores the function keys with this size.
 typedef char FKeysMatchSiteSettings[SITE_FKEY_BYTES == F_KEY_COUNT * F_KEY_SIZE ? 1 : -1];
 
@@ -649,6 +652,7 @@ BOOL BeginEntrySession(ULONG settingsId, const struct SiteSettings *entry)
         before = prefs;
         globalPrefs = prefs;
         SitePrefs_ApplyEntry(&prefs, &globalPrefs, entry);
+        fKeysFromEntry = SitePrefs_SwapInKeys(fKeys, globalFKeys, entry);
         sessionSettingsId = settingsId;
         RequestDisplayReopen(&before);
     }
@@ -661,9 +665,20 @@ BOOL BeginEntrySession(ULONG settingsId, const struct SiteSettings *entry)
  *        global settings come back after an entry session, and the C64
  *        display goes. Requests a display reopen when anything visible changes.
  */
+BOOL SessionOverridesKeyboard(void)
+{
+    return fKeysFromEntry;
+}
+
 void EndEntrySession(void)
 {
     static struct PrefsStruct before;
+
+    if (fKeysFromEntry)
+    {
+        SitePrefs_SwapOutKeys(fKeys, globalFKeys);
+        fKeysFromEntry = FALSE;
+    }
 
     connectionDisplay = FALSE;
     if (sessionSettingsId)
