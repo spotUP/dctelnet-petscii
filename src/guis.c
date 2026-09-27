@@ -801,7 +801,7 @@ static struct Window         *editProfileWnd;           // "Edit Address Book Pr
 static struct Gadget         *editProfileGList;         // "Edit Address Book Profile" window GList
 static struct Gadget         *editProfileGadgets[editProfile_CNT]; // "Edit Address Book Profile" window gadgets
 #define editProfileWidth 450
-#define editProfileHeight 181
+#define editProfileHeight 185
 
 static UBYTE editProfileGTypes[] = {
     STRING_KIND,
@@ -824,14 +824,14 @@ static struct MyNewGadget editProfileNGad[] = {
     120, 5, 317, 13, (UBYTE *)"_Site Name:",
     120, 21, 317, 13, (UBYTE *)"_Address:",
     121, 37, 177, 13, (UBYTE *)"Last Called:",
-    3, 166, 101, 13, (UBYTE *)"_Ok",
-    345, 166, 101, 13, (UBYTE *)"_Cancel",
+    3, 170, 101, 13, (UBYTE *)"_Ok",
+    345, 170, 101, 13, (UBYTE *)"_Cancel",
     365, 37, 72, 13, (UBYTE *)"_Port:",
     120, 53, 317, 13, (UBYTE *)"_Username:",
     120, 68, 317, 13, (UBYTE *)"Pass_word:",
-    120, 130, 317, 13, (UBYTE *)"Settings:",
-    3, 146, 218, 13, (UBYTE *)"Se_ttings...",
-    228, 146, 218, 13, (UBYTE *)"Use _Global Settings",
+    120, 134, 317, 13, (UBYTE *)"Settings:",
+    3, 150, 218, 13, (UBYTE *)"Se_ttings...",
+    228, 150, 218, 13, (UBYTE *)"Use _Global Settings",
     120, 84, 317, 13, (UBYTE *)"Co_mment:",
     120, 100, 317, 13, (UBYTE *)"_Login Macro:",
     3, 114, 443, 12, NULL,
@@ -920,7 +920,7 @@ static int OpenEditProfileWindow( void )
     DrawBevelBox( editProfileWnd->RPort, OffX + ComputeX( 3 ),
                     OffY + ComputeY( 1 ),
                     ComputeX( 444 ),
-                    ComputeY( 86 ),
+                    ComputeY( 128 ),   /* every field down to the macro help line */
                     GT_VisualInfo, visualInfos, TAG_DONE );
     return( 0L );
 }
