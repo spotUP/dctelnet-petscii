@@ -151,3 +151,41 @@ BOOL SitePrefs_Decode(struct SiteSettings *out, const UBYTE *buf, size_t len,
     }
     return FALSE;
 }
+
+static size_t append_str(char *out, size_t len, size_t max, const char *str)
+{
+    while (*str && len < max) out[len++] = *str++;
+    return len;
+}
+
+size_t SitePrefs_NextMacroSegment(const char **cursor, const char *user, const char *pass,
+                                  char *out, size_t max, BOOL *wait)
+{
+    const char *c = *cursor;
+    size_t len = 0;
+
+    *wait = FALSE;
+    while (*c && len < max)
+    {
+        if (c[0] == '\\' && c[1])
+        {
+            switch (c[1])
+            {
+                case 'u':  len = append_str(out, len, max, user); break;
+                case 'p':  len = append_str(out, len, max, pass); break;
+                case 'r':  out[len++] = '\r'; break;
+                case '\\': out[len++] = '\\'; break;
+                case 'd':  *wait = TRUE; break;
+                default:   out[len++] = c[0];
+                           if (len < max) out[len++] = c[1];
+                           break;
+            }
+            c += 2;
+            if (*wait) break;
+        }
+        else
+            out[len++] = *c++;
+    }
+    *cursor = c;
+    return len;
+}

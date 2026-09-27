@@ -159,6 +159,7 @@ static struct NewMenu mainMenuDesc[] =
 #endif
 
 static void GetWindowMsg(struct Window *wwin);
+static void SendMisc(char *str, long len);
 static void ResetTelnetContext(void);
 static void ResetZmodemContext(void);
 static void SetLocalEchoBack(BOOL wantedState);
@@ -597,6 +598,7 @@ static struct
     UWORD port;
     ULONG settingsId;
     char  username[42], password[42];
+    char  loginMacro[SITE_LOGIN_MACRO_SIZE];
 } pendingConnect;
 
 // Reopen the display when the C64 display it shows no longer matches what
@@ -675,8 +677,9 @@ void EndEntrySession(void)
 }
 
 void DeferConnect(const char *name, const char *host, UWORD port, ULONG settingsId,
-                  const char *user, const char *pass)
+                  const char *user, const char *pass, const char *loginMacro)
 {
+    strlcpy(pendingConnect.loginMacro, loginMacro, sizeof(pendingConnect.loginMacro));
     strlcpy(pendingConnect.name, name, sizeof(pendingConnect.name));
     strlcpy(pendingConnect.host, host, sizeof(pendingConnect.host));
     pendingConnect.port = port;
@@ -684,6 +687,26 @@ void DeferConnect(const char *name, const char *host, UWORD port, ULONG settings
     strlcpy(pendingConnect.username, user, sizeof(pendingConnect.username));
     strlcpy(pendingConnect.password, pass, sizeof(pendingConnect.password));
     pendingConnect.active = TRUE;
+}
+
+/**
+ * @brief Send an Address Book entry's login macro after connecting: \u, \p
+ *        are the entry's username and password, \r Return, \d a one-second
+ *        wait (SitePrefs_NextMacroSegment).
+ */
+void SendLoginMacro(const char *macro)
+{
+    static char segment[256];
+    const char *cursor = macro;
+    BOOL wait;
+    size_t n;
+
+    while (*cursor && isConnected)
+    {
+        n = SitePrefs_NextMacroSegment(&cursor, username, password, segment, sizeof(segment), &wait);
+        if (n) SendMisc(segment, (long)n);
+        if (wait) Delay(50);
+    }
 }
 
 static void RunPendingConnect(void)
@@ -698,6 +721,7 @@ static void RunPendingConnect(void)
             StampConnectedEntry();
             strlcpy(username, pendingConnect.username, sizeof(username));
             strlcpy(password, pendingConnect.password, sizeof(password));
+            SendLoginMacro(pendingConnect.loginMacro);
         }
     }
     else
@@ -1919,7 +1943,7 @@ static void OnConnectClicked(char spawnInstance)
                 Execute(buf, (BPTR) 0, (BPTR) 0);
             } else if (BeginEntrySession(0, NULL)) {
                 // Ending an entry session reopens the display: connect after it.
-                DeferConnect("", tbuf, port, 0, "", "");
+                DeferConnect("", tbuf, port, 0, "", "", "");
             } else {
                 tcpPort = port;
                 BeginServerConnection(tbuf, tcpPort);

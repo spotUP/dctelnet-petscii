@@ -188,7 +188,39 @@ static void test_a_dcs1_snapshot_loads_as_all_groups(void) {
     assert(!SitePrefs_Decode(&out, buf, sizeof(buf) - 1, globalKeys));
 }
 
+/* Collect the macro's segments; a wait between segments shows as '|'. */
+static void expand(const char *macro, const char *user, const char *pass, char *out) {
+    const char *cursor = macro;
+    char seg[64];
+    BOOL wait;
+    size_t n;
+
+    out[0] = 0;
+    while (*cursor) {
+        n = SitePrefs_NextMacroSegment(&cursor, user, pass, seg, sizeof(seg), &wait);
+        strncat(out, seg, n);
+        if (wait) strcat(out, "|");
+    }
+}
+
+/* A login macro types the username and password for the user: \u, \p,
+ * \r (Return), \d (wait one second), \\ (a backslash). A password with a
+ * backslash in it must go out unchanged. */
+static void test_login_macro_expands_codes(void) {
+    char out[128];
+
+    expand("\\u\\r\\d\\p\\r", "spot", "se\\cret", out);
+    assert(strcmp(out, "spot\r|se\\cret\r") == 0);
+
+    expand("x\\\\y\\q", "u", "p", out);          /* \\ -> \, unknown \q kept */
+    assert(strcmp(out, "x\\y\\q") == 0);
+
+    expand("", "u", "p", out);
+    assert(out[0] == 0);
+}
+
 int main(void) {
+    test_login_macro_expands_codes();
     test_sidecar_round_trip_and_rejects();
     test_apply_takes_only_overridden_groups();
     test_each_group_moves_only_its_members();
