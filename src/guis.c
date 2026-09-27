@@ -958,7 +958,7 @@ static ULONG NextSettingsId(struct List *list)
  */
 enum
 {
-    SG_SCREEN_OVR, SG_SCREEN_SUM, SG_SCREEN_CUR, SG_SCREEN_MODE, SG_SCREEN_FONT, SG_SCREEN_PALETTE, SG_SCREEN_WB,
+    SG_SCREEN_OVR, SG_SCREEN_SUM, SG_SCREEN_CUR, SG_SCREEN_MODE, SG_SCREEN_FONT, SG_SCREEN_PALETTE,
     SG_TERM_OVR, SG_TERM_SUM, SG_TERM_CUR, SG_TERM_PETSCII, SG_TERM_XEM, SG_TERM_XEMLIB, SG_TERM_DISPID,
     SG_TERM_RAW, SG_TERM_ECHO,
     SG_KEY_OVR, SG_KEY_SUM, SG_KEY_CUR, SG_KEY_BSDEL, SG_KEY_CRLF, SG_KEY_FKEYS,
@@ -988,7 +988,6 @@ static const struct SettingsGadgetDef settingsDefs[SG_COUNT] =
     {  80,  20, 128, 13, "Screen Mode...",       PLACETEXT_IN,    BUTTON_KIND   },
     { 212,  20,  72, 13, "Font...",              PLACETEXT_IN,    BUTTON_KIND   },
     { 288,  20,  96, 13, "Palette...",           PLACETEXT_IN,    BUTTON_KIND   },
-    { 396,  21,  26, 11, "Use Workbench",        PLACETEXT_RIGHT, CHECKBOX_KIND },
 
     {  80,  42, 112, 13, "Terminal",             PLACETEXT_LEFT,  CYCLE_KIND    },
     { 196,  42, 300, 13, NULL,                   0,               TEXT_KIND     },
@@ -1056,7 +1055,6 @@ static void RefreshSettingsWindow(const struct SiteSettings *work)
         GT_SetGadgetAttrs(settingsGadgets[summaryGadget[g]], settingsWnd, NULL,
                           GTTX_Text, summary[g], TAG_DONE);
     }
-    SetChecked(SG_SCREEN_WB,    (shown.flags & FLAG_USE_WORKBENCH) != 0);
     SetChecked(SG_TERM_PETSCII, (shown.flags & FLAG_PETSCII_MODE) != 0);
     SetChecked(SG_TERM_XEM,     (shown.flags & FLAG_USE_XEM_LIBRARY) != 0);
     SetChecked(SG_TERM_RAW,     (shown.flags & FLAG_RAW_CONNECTION) != 0);
@@ -1224,9 +1222,6 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
                     undo = work;
                     OverrideGroup(&work, SITE_GROUP_SCREEN);
                     if (!EditPalette(&work.prefs)) work = undo;
-                    break;
-                case SG_SCREEN_WB:
-                    SetFlagFromGadget(&work, SITE_GROUP_SCREEN, SG_SCREEN_WB, FLAG_USE_WORKBENCH);
                     break;
 
                 case SG_TERM_PETSCII:

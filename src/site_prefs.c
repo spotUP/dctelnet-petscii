@@ -32,7 +32,6 @@ static void replace_keeping_geometry(struct PrefsStruct *live, const struct Pref
     copy_geometry(live, &geometry);
 }
 
-#define SCREEN_GROUP_FLAGS    (FLAG_USE_WORKBENCH)
 #define TERMINAL_GROUP_FLAGS  (FLAG_PETSCII_MODE | FLAG_USE_XEM_LIBRARY | FLAG_RAW_CONNECTION | FLAG_LOCAL_ECHO)
 #define KEYBOARD_GROUP_FLAGS  (FLAG_BS_DEL_SWAP | FLAG_RETURN_CRLF)
 
@@ -58,7 +57,6 @@ void SitePrefs_ApplyEntry(struct PrefsStruct *live, const struct PrefsStruct *gl
         memcpy(result.color, e->color, sizeof(result.color));
         result.ansiMagic = e->ansiMagic;
         memcpy(result.ansiRGB, e->ansiRGB, sizeof(result.ansiRGB));
-        copy_flags(&result, e, SCREEN_GROUP_FLAGS);
     }
     if (entry->groups & SITE_GROUP_TERMINAL)
     {
@@ -302,22 +300,14 @@ void SitePrefs_GroupSummary(ULONG group, const struct PrefsStruct *p, char *out,
     out[0] = 0;
     if (group == SITE_GROUP_SCREEN)
     {
-        if (p->flags & FLAG_USE_WORKBENCH)
-        {
-            put(out, &len, max, "Workbench, ");
-            put_font(out, &len, max, p);
-        }
-        else
-        {
-            put_font(out, &len, max, p);
-            put(out, &len, max, ", ");
-            put_num(out, &len, max, p->DisplayWidth);
-            put(out, &len, max, "x");
-            put_num(out, &len, max, p->DisplayHeight);
-            put(out, &len, max, ", ");
-            put_num(out, &len, max, 1UL << p->DisplayDepth);
-            put(out, &len, max, " colours");
-        }
+        put_font(out, &len, max, p);
+        put(out, &len, max, ", ");
+        put_num(out, &len, max, p->DisplayWidth);
+        put(out, &len, max, "x");
+        put_num(out, &len, max, p->DisplayHeight);
+        put(out, &len, max, ", ");
+        put_num(out, &len, max, 1UL << p->DisplayDepth);
+        put(out, &len, max, " colours");
     }
     else if (group == SITE_GROUP_TERMINAL)
     {

@@ -72,7 +72,18 @@ static void test_each_group_moves_only_its_members(void) {
 
     live = global; entry = entry_with(SITE_GROUP_SCREEN, e);
     SitePrefs_ApplyEntry(&live, &global, &entry);
-    assert(live.flags == FLAG_USE_WORKBENCH && live.DisplayDepth == 8 && live.fontsize == 11);
+    /* Use Workbench is app-wide: an entry saved in Workbench mode opened
+     * the Workbench window on connect while the user ran DCTelnet on its
+     * own 800x600 screen. */
+    assert(live.flags == 0 && live.DisplayDepth == 8 && live.fontsize == 11);
+    live = make(FLAG_USE_WORKBENCH, "IBM.font", 8);
+    global = live;
+    e.flags = 0;
+    entry = entry_with(SITE_GROUP_SCREEN, e);
+    SitePrefs_ApplyEntry(&live, &global, &entry);
+    assert(live.flags == FLAG_USE_WORKBENCH);
+    global = make(0, "IBM.font", 8);
+    e.flags = FLAG_RETURN_CRLF | FLAG_USE_WORKBENCH | FLAG_RAW_CONNECTION;
 
     live = global; entry = entry_with(SITE_GROUP_TERMINAL, e);
     SitePrefs_ApplyEntry(&live, &global, &entry);
