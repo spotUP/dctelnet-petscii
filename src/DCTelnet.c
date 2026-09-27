@@ -290,6 +290,7 @@ static UWORD colorPens[]  = { 1,4,1,1,6,4,1,0,5,4,1,6,65535 };
 static UBYTE ansiPens[16];
 static BOOL  ansiOwnPens = FALSE;
 static BOOL  wbPensObtained = FALSE;    // ansiPens came from ObtainBestPen on the Workbench
+static BOOL  wbPenOwned[16];            // this pen was obtained (and is released on close)
 static BYTE  penTableError = 0;         // io_Error of IBMCMD_SETPENS (IOERR_NOCMD: ibmcon < 1.5)
 #define IBMCMD_SETPENS 0x7FE0          // ibmcon.device 1.5
 static UWORD color[] = { 0x0000, 0x0DDD, 0x00D0, 0x0DD0, 0x000D, 0x0D0D, 0x00DD, 0x0D00,
@@ -3348,10 +3349,17 @@ static BOOL OpenConsoleDevice(void)
         for (i = 0; i < 16; i++)
         {
             ULONG c = prefs.ansiRGB[i];
-            ansiPens[i] = (UBYTE)ObtainBestPen(scr->ViewPort.ColorMap,
-                              ((c >> 16) & 0xFF) * 0x01010101UL, ((c >> 8) & 0xFF) * 0x01010101UL,
-                              (c & 0xFF) * 0x01010101UL,
-                              OBP_Precision, PRECISION_EXACT, TAG_DONE);
+            ULONG r = ((c >> 16) & 0xFF) * 0x01010101UL, g = ((c >> 8) & 0xFF) * 0x01010101UL,
+                  bl = (c & 0xFF) * 0x01010101UL;
+            LONG pen = ObtainBestPen(scr->ViewPort.ColorMap, r, g, bl,
+                                     OBP_Precision, PRECISION_EXACT, TAG_DONE);
+
+            // No pen to share (-1): the nearest colour already there, which
+            // is not ours to release. -1 cast to UBYTE was pen 255.
+            wbPenOwned[i] = pen >= 0;
+            if (pen < 0)
+                pen = FindColor(scr->ViewPort.ColorMap, r, g, bl, -1);
+            ansiPens[i] = (UBYTE)pen;
         }
         wbPensObtained = TRUE;
         ansiOwnPens = TRUE;
@@ -3416,7 +3424,8 @@ static void CloseConsoleDevice(void)
         UWORD i;
 
         for (i = 0; i < 16; i++)
-            ReleasePen(scr->ViewPort.ColorMap, ansiPens[i]);
+            if (wbPenOwned[i])
+                ReleasePen(scr->ViewPort.ColorMap, ansiPens[i]);
         wbPensObtained = FALSE;
         ansiOwnPens = FALSE;
     }
