@@ -31,4 +31,15 @@ void SitePrefs_ForSave(struct PrefsStruct *out, const struct PrefsStruct *live,
 BOOL SitePrefs_DisplayDiffers(const struct PrefsStruct *a, const struct PrefsStruct *b,
                               BOOL *reopenScreen);
 
+/* An entry's settings file, PROGDIR:Sites/<id>.prefs: the 4 bytes 'DCS1'
+ * then a PrefsStruct dump (the same layout as DCTelnet.Prefs). */
+#define SITE_PREFS_MAGIC_SIZE 4
+#define SITE_PREFS_FILE_SIZE  (SITE_PREFS_MAGIC_SIZE + sizeof(struct PrefsStruct))
+
+/* Returns the bytes written, 0 when max is too small. */
+size_t SitePrefs_Encode(const struct PrefsStruct *p, UBYTE *buf, size_t max);
+
+/* FALSE (out untouched) unless buf is exactly one valid settings file. */
+BOOL SitePrefs_Decode(struct PrefsStruct *out, const UBYTE *buf, size_t len);
+
 #endif /* SITE_PREFS_H */

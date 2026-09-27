@@ -70,3 +70,22 @@ BOOL SitePrefs_DisplayDiffers(const struct PrefsStruct *a, const struct PrefsStr
 
     return *reopenScreen || windows;
 }
+
+static const UBYTE MAGIC[SITE_PREFS_MAGIC_SIZE] = { 'D', 'C', 'S', '1' };
+
+size_t SitePrefs_Encode(const struct PrefsStruct *p, UBYTE *buf, size_t max)
+{
+    if (max < SITE_PREFS_FILE_SIZE)
+        return 0;
+    memcpy(buf, MAGIC, SITE_PREFS_MAGIC_SIZE);
+    memcpy(buf + SITE_PREFS_MAGIC_SIZE, p, sizeof(*p));
+    return SITE_PREFS_FILE_SIZE;
+}
+
+BOOL SitePrefs_Decode(struct PrefsStruct *out, const UBYTE *buf, size_t len)
+{
+    if (len != SITE_PREFS_FILE_SIZE || memcmp(buf, MAGIC, SITE_PREFS_MAGIC_SIZE) != 0)
+        return FALSE;
+    memcpy(out, buf + SITE_PREFS_MAGIC_SIZE, sizeof(*out));
+    return TRUE;
+}

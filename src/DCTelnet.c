@@ -528,6 +528,9 @@ static void DisConnect(char remote, char quiet)
         }
 
         LEDs();
+
+        // The connection ends, and with it any Address Book entry's settings.
+        EndEntrySession();
     }
 }
 
@@ -545,6 +548,93 @@ void SavePrefs(void)
         Write(fileHandle, &toSave, sizeof(struct PrefsStruct));
         Close(fileHandle);
     }
+}
+
+// Address Book connect that waits for the display to be reopened with the
+// entry's settings (see BeginEntrySession); run by the main loop.
+static struct
+{
+    BOOL  active;
+    char  host[52];
+    UWORD port;
+    ULONG settingsId;
+    char  username[42], password[42];
+} pendingConnect;
+
+static void RequestDisplayReopen(const struct PrefsStruct *before)
+{
+    BOOL reopenScreen;
+
+    if (SitePrefs_DisplayDiffers(before, &prefs, &reopenScreen))
+    {
+        shouldRestart = TRUE;
+        if (reopenScreen) shouldReopenScreen = TRUE;
+    }
+}
+
+/**
+ * @brief Make an Address Book entry's own settings the live settings.
+ *
+ * Ends any current connection (and with it any previous entry session), keeps
+ * the global settings aside in globalPrefs and applies the entry's (window
+ * geometry stays global). Menu changes from now on are session-only; only
+ * globalPrefs is saved.
+ *
+ * @return TRUE when the display must be reopened before connecting.
+ */
+BOOL BeginEntrySession(ULONG settingsId, const struct PrefsStruct *entry)
+{
+    static struct PrefsStruct before;
+
+    if (isConnected) DisConnect(FALSE, FALSE);
+    EndEntrySession();
+
+    before = prefs;
+    globalPrefs = prefs;
+    SitePrefs_ApplyEntry(&prefs, entry);
+    sessionSettingsId = settingsId;
+    RequestDisplayReopen(&before);
+    return shouldRestart;
+}
+
+/**
+ * @brief Restore the global settings after an entry session (disconnect or a
+ *        failed connect). Requests a display reopen when they differ.
+ */
+void EndEntrySession(void)
+{
+    static struct PrefsStruct before;
+
+    if (!sessionSettingsId) return;
+    before = prefs;
+    SitePrefs_Restore(&prefs, &globalPrefs);
+    sessionSettingsId = 0;
+    RequestDisplayReopen(&before);
+}
+
+void DeferConnect(const char *host, UWORD port, ULONG settingsId,
+                  const char *user, const char *pass)
+{
+    strlcpy(pendingConnect.host, host, sizeof(pendingConnect.host));
+    pendingConnect.port = port;
+    pendingConnect.settingsId = settingsId;
+    strlcpy(pendingConnect.username, user, sizeof(pendingConnect.username));
+    strlcpy(pendingConnect.password, pass, sizeof(pendingConnect.password));
+    pendingConnect.active = TRUE;
+}
+
+static void RunPendingConnect(void)
+{
+    pendingConnect.active = FALSE;
+    tcpPort = pendingConnect.port;
+    if (BeginServerConnection(pendingConnect.host, pendingConnect.port) == RETURN_OK)
+    {
+        MarkEntryConnected(pendingConnect.settingsId);
+        strlcpy(username, pendingConnect.username, sizeof(username));
+        strlcpy(password, pendingConnect.password, sizeof(password));
+    }
+    else
+        EndEntrySession();
 }
 
 
@@ -1607,6 +1697,10 @@ int main(int argc, char *argv[])
                 shouldRestart = FALSE;
                 shouldReopenScreen = FALSE;
             }
+
+            // After the reopen, so the connect sees the entry's display settings.
+            if (pendingConnect.active)
+                RunPendingConnect();
         }
     } /* -- end of main loop -- */
 

@@ -91,7 +91,29 @@ static void test_display_differs_names_what_needs_a_reopen(void) {
     assert(SitePrefs_DisplayDiffers(&a, &b, &screen) && !screen);
 }
 
+/* The sidecar file an entry's settings live in: magic + the PrefsStruct
+ * dump. A file from another version, a truncated one, or garbage is "no
+ * settings", never a half-read struct. */
+static void test_sidecar_round_trip_and_rejects(void) {
+    struct PrefsStruct in = make(FLAG_PETSCII_MODE, "Petscii.font", 8), out;
+    UBYTE buf[SITE_PREFS_FILE_SIZE + 8];
+    size_t n;
+
+    n = SitePrefs_Encode(&in, buf, sizeof(buf));
+    assert(n == SITE_PREFS_FILE_SIZE);
+    assert(buf[0] == 'D' && buf[1] == 'C' && buf[2] == 'S' && buf[3] == '1');
+    memset(&out, 0xAA, sizeof(out));
+    assert(SitePrefs_Decode(&out, buf, n));
+    assert(memcmp(&in, &out, sizeof(in)) == 0);
+
+    assert(!SitePrefs_Decode(&out, buf, n - 1));           /* truncated */
+    buf[3] = '2';
+    assert(!SitePrefs_Decode(&out, buf, n));               /* other version */
+    assert(SitePrefs_Encode(&in, buf, SITE_PREFS_FILE_SIZE - 1) == 0); /* no room */
+}
+
 int main(void) {
+    test_sidecar_round_trip_and_rejects();
     test_apply_entry_keeps_window_geometry();
     test_restore_brings_back_global_but_keeps_moved_windows();
     test_save_writes_global_during_a_session();

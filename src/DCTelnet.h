@@ -95,6 +95,10 @@ extern struct NewWindow newWin;
 extern struct PrefsStruct prefs;
 extern struct PrefsStruct globalPrefs;   // global settings during an entry session
 extern ULONG sessionSettingsId;          // 0 = no entry session
+BOOL BeginEntrySession(ULONG settingsId, const struct PrefsStruct *entry);
+void EndEntrySession(void);
+void DeferConnect(const char *host, UWORD port, ULONG settingsId,
+                  const char *user, const char *pass);
 extern struct List *scrollbackList;
 extern struct Screen *scr;
 extern struct TextFont *ansiFont;

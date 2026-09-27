@@ -23,6 +23,7 @@
 #include "DCTelnet.h"
 #include "requesters.h"
 #include "utils.h"
+#include "site_prefs.h"
 
 struct BookStruct
 {
@@ -32,10 +33,101 @@ struct BookStruct
     ULONG   lastConnect;
     char    username[42];
     char    password[42];
-    char    res[82];
+    ULONG   settingsId;     // PROGDIR:Sites/<id>.prefs holds this entry's own settings, 0 = global
+    char    res[78];        // reserved; old versions write it back byte for byte
 };
 
 static BOOL EditProfile(struct BookStruct *book);
+
+/*
+ * Per-entry settings files (issue #10). An entry that has settings of its own
+ * stores an id in BookStruct.settingsId; the settings live in
+ * PROGDIR:Sites/<id>.prefs, so DCTelnet.Book keeps its 256-byte record and
+ * still loads in versions that know nothing about entry settings.
+ */
+#define SITES_DIR "PROGDIR:Sites"
+
+static void EntrySettingsPath(ULONG id, char *path)
+{
+    mysprintf(path, SITES_DIR "/%lu.prefs", id);
+}
+
+BOOL LoadEntrySettings(ULONG id, struct PrefsStruct *out)
+{
+    static UBYTE fileBuf[SITE_PREFS_FILE_SIZE + 1];   // +1: a longer file is not ours
+    char path[40];
+    BPTR fh;
+    LONG len;
+
+    if (!id) return FALSE;
+    EntrySettingsPath(id, path);
+    fh = Open(path, MODE_OLDFILE);
+    if (!fh) return FALSE;
+    len = Read(fh, fileBuf, sizeof(fileBuf));
+    Close(fh);
+    return len > 0 && SitePrefs_Decode(out, fileBuf, (size_t)len);
+}
+
+BOOL SaveEntrySettings(ULONG id, const struct PrefsStruct *settings)
+{
+    static UBYTE fileBuf[SITE_PREFS_FILE_SIZE];
+    char path[40];
+    BPTR fh, lock;
+    size_t len;
+    BOOL ok = FALSE;
+
+    if (!id) return FALSE;
+    lock = Lock(SITES_DIR, SHARED_LOCK);
+    if (!lock) lock = CreateDir(SITES_DIR);
+    if (!lock) return FALSE;
+    UnLock(lock);
+
+    len = SitePrefs_Encode(settings, fileBuf, sizeof(fileBuf));
+    EntrySettingsPath(id, path);
+    fh = Open(path, MODE_NEWFILE);
+    if (fh)
+    {
+        ok = Write(fh, fileBuf, (LONG)len) == (LONG)len;
+        Close(fh);
+    }
+    return ok;
+}
+
+static void DeleteEntrySettings(ULONG id)
+{
+    char path[40];
+
+    if (!id) return;
+    EntrySettingsPath(id, path);
+    DeleteFile(path);
+}
+
+/*
+ * Stamp lastConnect on the DCTelnet.Book record with this settings id. Used
+ * when the connect ran after the Address Book window had closed (it waited
+ * for the display to reopen with the entry's settings), so the in-memory
+ * list the window normally updates is gone.
+ */
+void MarkEntryConnected(ULONG settingsId)
+{
+    static struct BookStruct record;
+    BPTR fh;
+
+    if (!settingsId) return;
+    fh = Open(bookFilename, MODE_OLDFILE);
+    if (!fh) return;
+    while (Read(fh, &record, sizeof(record)) == sizeof(record))
+    {
+        if (record.settingsId == settingsId)
+        {
+            record.lastConnect = mytime();
+            Seek(fh, -(LONG)sizeof(record), OFFSET_CURRENT);
+            Write(fh, &record, sizeof(record));
+            break;
+        }
+    }
+    Close(fh);
+}
 
 
 static struct Window         *aBookWnd;           // "Address Book" window
@@ -462,6 +554,7 @@ delete:
                             //if(rtEZRequestA(buf, "Delete|Cancel", NULL, NULL, (struct TagItem *)&reqtoolsTags))
                             {
                                 Remove(worknode);
+                                DeleteEntrySettings(((struct BookStruct *)worknode->ln_Name)->settingsId);
                                 FreeMem(worknode->ln_Name, sizeof(struct BookStruct));
                                 FreeMem(worknode, sizeof(struct Node));
                                 lastcode--;
@@ -521,12 +614,29 @@ add:
     // Initiate connection if requested
     if(ret)
     {
-        tcpPort = conbook->port;
-        if(BeginServerConnection(conbook->host, conbook->port) == RETURN_OK)
+        static struct PrefsStruct entrySettings;
+        BOOL hasSettings = LoadEntrySettings(conbook->settingsId, &entrySettings);
+
+        // An entry with settings of its own that change the display: the display
+        // must be reopened with them BEFORE connecting, which only the main loop
+        // can do -- this runs inside GetWindowMsg(win). The connect is queued and
+        // runs right after the reopen.
+        if (hasSettings && BeginEntrySession(conbook->settingsId, &entrySettings))
         {
-            conbook->lastConnect = mytime();
-            strlcpy(username, conbook->username, sizeof(username));
-            strlcpy(password, conbook->password, sizeof(password));
+            DeferConnect(conbook->host, conbook->port, conbook->settingsId,
+                         conbook->username, conbook->password);
+        }
+        else
+        {
+            tcpPort = conbook->port;
+            if(BeginServerConnection(conbook->host, conbook->port) == RETURN_OK)
+            {
+                conbook->lastConnect = mytime();
+                strlcpy(username, conbook->username, sizeof(username));
+                strlcpy(password, conbook->password, sizeof(password));
+            }
+            else
+                EndEntrySession();
         }
     }
 

@@ -1,6 +1,8 @@
 #ifndef GUIS_H
 #define GUIS_H
 
+#include "prefs.h"   // struct PrefsStruct
+
 #include <exec/types.h>
 
 // Types
@@ -42,6 +44,9 @@ void CloseScrollBack(void);
 void OpenScrollBack(UWORD sel);
 void FunctionKeys(void);
 void AddressBook(void);
+BOOL LoadEntrySettings(ULONG id, struct PrefsStruct *out);
+BOOL SaveEntrySettings(ULONG id, const struct PrefsStruct *settings);
+void MarkEntryConnected(ULONG settingsId);
 void RefreshListView(UWORD top);
 void OpenToolBarWindow(char setmenus);
 void CloseToolBarWindow(void);
