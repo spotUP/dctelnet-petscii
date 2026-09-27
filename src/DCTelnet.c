@@ -51,6 +51,7 @@ static char MainWindowTitle[] =
 #include "petscii_dispatch.h"
 #include "petscii_keymap.h"
 #include "site_prefs.h"
+#include "screenfont.h"
 #ifdef __VBCC__
     #pragma popwarn
 #endif
@@ -3249,18 +3250,19 @@ static UWORD EstablishTCPConnection(char *servername, UWORD port)
 
 
 /**
- * @brief Open a PETSCII font from FONTS:, else from the Fonts drawer next to the program.
+ * @brief Open a font DCTelnet ships (Petscii, PetsciiLower, TopazPro) from
+ *        FONTS:, else from the Fonts drawer next to the program.
  *
- * The release archive carries Petscii.font/PetsciiLower.font in DCTelnet/Fonts/, and not every
- * user copies them into FONTS:. diskfont.library accepts a path in ta_Name.
+ * The release archive carries them in DCTelnet/Fonts/, and not every user copies them into
+ * FONTS:. diskfont.library accepts a path in ta_Name.
  */
-static struct TextFont *OpenPetsciiFont(STRPTR name, STRPTR progdirPath)
+static struct TextFont *OpenBundledFont(STRPTR name, STRPTR progdirPath, UWORD ysize)
 {
     struct TextAttr attr;
     struct TextFont *font;
 
     attr.ta_Name  = name;
-    attr.ta_YSize = 8;
+    attr.ta_YSize = ysize;
     attr.ta_Style = FS_NORMAL;
     attr.ta_Flags = 0;
     font = OpenDiskFont(&attr);
@@ -3285,9 +3287,9 @@ static void OpenPetsciiFonts(void)
          * byte, double-width (16x8) cells so 40 columns fill roughly the
          * physical width the normal 80-column font needs. Not installed:
          * both stay NULL and Receive() renders CP437 lookalikes instead. */
-        petsciiFont = OpenPetsciiFont("Petscii.font", "PROGDIR:Fonts/Petscii.font");
+        petsciiFont = OpenBundledFont("Petscii.font", "PROGDIR:Fonts/Petscii.font", 8);
         petsciiFontLower = petsciiFont
-            ? OpenPetsciiFont("PetsciiLower.font", "PROGDIR:Fonts/PetsciiLower.font") : NULL;
+            ? OpenBundledFont("PetsciiLower.font", "PROGDIR:Fonts/PetsciiLower.font", 8) : NULL;
     }
 }
 
@@ -3525,7 +3527,36 @@ struct Screen* OpenAppScreen(void)
 
     fontAttr.ta_Name = prefs.fontname;
     fontAttr.ta_YSize = prefs.fontsize;
-    ansiFont = OpenDiskFont(&fontAttr);
+    ansiFont = NULL;
+
+    // On a mode with square pixels (every RTG mode) topaz looks squashed:
+    // Topaz Pro, topaz redrawn for square pixels, replaces it -- for the
+    // screen (title bar, menus) and the terminal alike.
+    {
+        struct DisplayInfo di;
+        ULONG modeID = prefs.DisplayID;
+
+        if (isRunningOnWB)
+        {
+            struct Screen *wb = LockPubScreen(NULL);
+
+            modeID = wb ? GetVPModeID(&wb->ViewPort) : INVALID_ID;
+            if (wb) UnlockPubScreen(NULL, wb);
+        }
+        if (modeID != INVALID_ID
+            && GetDisplayInfoData(NULL, (UBYTE *)&di, sizeof(di), DTAG_DISP, modeID)
+            && ScreenFont_WantsTopazPro(prefs.fontname, di.Resolution.x, di.Resolution.y))
+        {
+            ansiFont = OpenBundledFont(TOPAZ_PRO_NAME, "PROGDIR:Fonts/" TOPAZ_PRO_NAME, TOPAZ_PRO_SIZE);
+            if (ansiFont)
+            {
+                fontAttr.ta_Name  = TOPAZ_PRO_NAME;     // in the font list now: OpenScreen finds it
+                fontAttr.ta_YSize = TOPAZ_PRO_SIZE;
+            }
+        }
+    }
+    if (!ansiFont)
+        ansiFont = OpenDiskFont(&fontAttr);
     if(!ansiFont)
     {
         fontAttr.ta_Name = "topaz.font";
