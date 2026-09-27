@@ -1,4 +1,4 @@
-# ibmcon.device 1.4 -- annotated disassembly
+# ibmcon.device -- annotated disassembly (1.4 bug-fixed, 1.5, 1.6)
 
 Source: reassembled dump of `ibmcon.device` 1.4 (Mar 9 1998) from
 https://www.computerdevices.it/vintage_amiga_page/download/ibmcon.device.asm
@@ -6,7 +6,7 @@ https://www.computerdevices.it/vintage_amiga_page/download/ibmcon.device.asm
 | File | Content |
 |------|---------|
 | `ibmcon.device.original.asm` | Untouched In_Go Reassembler dump (auto labels, no comments) |
-| `ibmcon.device.readable.asm` | Restructured version: reconstructed label names, struct/offset EQUs, full commentary, and 13 bug fixes (each marked `FIXED:` in the code, list in the file header) |
+| `ibmcon.device.bugfixed.asm` | Restructured version: reconstructed label names, struct/offset EQUs, full commentary, the 1.4 bug fixes (each marked `FIXED:` in the code, list in the file header) and the 1.5/1.6 additions below |
 
 ## What it is
 
@@ -28,7 +28,7 @@ ANSI.SYS text console inside an Intuition window.
 
 Full architecture description, struct layouts, the SAS/C autoinit
 `$FC`-byte relocation trick, and the list of original bugs (fixed in
-the readable version) are in the header of `ibmcon.device.readable.asm`.
+the bug-fixed version) are in the header of `ibmcon.device.bugfixed.asm`.
 
 Fixed bugs, in short: CSI `S` scroll direction; SetSoftStyle italic
 enable mask; erasing now uses the SGR background pen instead of pen 0;
@@ -45,11 +45,11 @@ SU/SD and erases deliberately stay whole-window, ANSI.SYS style).
 
 ## Verification
 
-`ibmcon.device.readable.asm` assembles with vasm straight to an
-installable device binary (`ibmcon.device` in this directory, copy to
-`DEVS:`):
+`make` assembles `ibmcon.device.bugfixed.asm` with vasm to an installable
+device binary (`ibmcon.device`; DCTelnet opens it from its own `Devs`
+drawer or from `DEVS:`) and then runs `make check`:
 
-    vasmm68k_mot -Fhunkexe -kick1hunks -nosym -o ibmcon.device ibmcon.device.readable.asm
+    vasmm68k_mot -Fhunkexe -kick1hunks -nosym -o ibmcon.device ibmcon.device.bugfixed.asm
 
 (`-kick1hunks` keeps the relocations as classic HUNK_RELOC32 like the
 original SAS/C binary instead of the V37+ RELOC32SHORT form; `-nosym`
@@ -59,10 +59,8 @@ Data sections assemble byte-exact to the original layout (Segment3 =
 $140 bytes, all magic offsets preserved). The code section matches the
 original except for the marked bug fixes.
 
-No runtime test environment exists here (would need an Amiga emulator
-with a client that opens the device); verification of the fixes is
-assemble-clean plus a manual register/stack audit of each changed
-routine.
+The 1.5 and 1.6 changes were verified with DCTelnet on an emulated
+A1200 (FS-UAE, AGA and Picasso96 screens) and on the Workbench.
 
 ## 1.5 (2026-09-27, for DCTelnet's RTG/256-colour work)
 
@@ -80,3 +78,23 @@ routine.
 * Background-pen check: depth 32 no longer rejects every pen (bset is
   modulo 32).
 * `make check` proves the code is plain 68000 despite the MC68020 directive.
+
+## 1.6 (2026-09-27)
+
+* **Deferred wrap.** A character in the last column no longer wraps at
+  once: the cursor stays there with a wrap pending, and the next printable
+  character wraps first (VT100/ANSI terminals). A BBS line of exactly 80
+  characters followed by CR LF was two lines before -- an empty one after
+  every full row. CR, LF, BS, HT, VT, FF and every CSI sequence except SGR
+  cancel the pending wrap. The console record grows by a word
+  (`con_WrapPending`, `CON_FRAME` $226).
+* **CSI t measures the window like a resize.** Its default counted a
+  GimmeZeroZero window's title bar and borders as rows; it now uses the
+  same measure as a resize, clamps an explicit row count to the rows that
+  fit, and ignores the multi-parameter forms (xterm window operations,
+  PabloDraw 24-bit colour) that are not a page length.
+* **Resize.** The grid is measured from a GimmeZeroZero window's inner
+  area and measured again when the window changes size.
+* **Depth.** The screen depth is read with `GetBitMapAttr(BMA_DEPTH)` on
+  V39+ (an RTG bitmap's `bm_Depth` is not its depth).
+* Version 1.6 (lib_Revision 6).
