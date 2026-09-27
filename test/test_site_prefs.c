@@ -327,6 +327,38 @@ static void test_a_manual_change_during_a_session_is_kept_globally(void) {
     assert(memcmp(&global, &pristine, sizeof(global)) == 0);
 }
 
+/* A font picked while connected is for this run only: it survives the
+ * disconnect but DCTelnet.Prefs keeps the one it replaced. Picked again
+ * while not connected, it is a real change and saved. */
+static void test_a_font_picked_while_connected_is_not_saved(void) {
+    static struct SiteHandChanges hand;
+    struct PrefsStruct global = make(0, "topaz.font", 8), session, before, toSave;
+
+    SitePrefs_HandInit(&hand, &global);
+    session = make(0, "TopazPro.font", 16);                 /* the entry's font */
+    before = session;
+    strcpy(session.fontname, "Thin711.font"); session.fontsize = 11;
+    SitePrefs_HandChange(&hand, &global, &before, &session, TRUE);
+    assert(strcmp(global.fontname, "Thin711.font") == 0);   /* the run keeps it */
+    toSave = global;
+    SitePrefs_HandForSave(&hand, &toSave);
+    assert(strcmp(toSave.fontname, "topaz.font") == 0 && toSave.fontsize == 8);
+
+    before = global;                                         /* not connected now */
+    global.flags |= FLAG_LOCAL_ECHO;                         /* an unrelated real change */
+    SitePrefs_HandChange(&hand, &global, &before, &global, FALSE);
+    toSave = global;
+    SitePrefs_HandForSave(&hand, &toSave);
+    assert(strcmp(toSave.fontname, "topaz.font") == 0 && (toSave.flags & FLAG_LOCAL_ECHO));
+
+    before = global;                                         /* the font, for real */
+    strcpy(global.fontname, "IBM.font"); global.fontsize = 8;
+    SitePrefs_HandChange(&hand, &global, &before, &global, FALSE);
+    toSave = global;
+    SitePrefs_HandForSave(&hand, &toSave);
+    assert(strcmp(toSave.fontname, "IBM.font") == 0);
+}
+
 /* The settings window's one-line summary per group. */
 static void test_group_summaries(void) {
     struct PrefsStruct p = make(FLAG_PETSCII_MODE | FLAG_BS_DEL_SWAP, "Petscii.font", 8);
@@ -384,6 +416,7 @@ int main(void) {
     test_differing_groups_names_what_changed();
     test_font_or_palette_change_is_a_look_change();
     test_a_manual_change_during_a_session_is_kept_globally();
+    test_a_font_picked_while_connected_is_not_saved();
     test_group_summaries();
     test_entry_function_keys_swap_in_and_back();
     test_login_macro_expands_codes();

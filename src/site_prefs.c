@@ -137,6 +137,28 @@ void SitePrefs_CarryChange(struct PrefsStruct *global, const struct PrefsStruct 
     global->flags = (global->flags & ~changed) | (after->flags & changed);
 }
 
+void SitePrefs_HandInit(struct SiteHandChanges *h, const struct PrefsStruct *loaded)
+{
+    h->before = *loaded;
+    h->after  = *loaded;
+}
+
+void SitePrefs_HandChange(struct SiteHandChanges *h, struct PrefsStruct *global,
+                          const struct PrefsStruct *before, const struct PrefsStruct *after,
+                          BOOL inSession)
+{
+    if (inSession)
+        SitePrefs_CarryChange(global, before, after);   // the run keeps it
+    else
+        SitePrefs_CarryChange(&h->before, before, after);   // a real change: saved
+    SitePrefs_CarryChange(&h->after, before, after);
+}
+
+void SitePrefs_HandForSave(const struct SiteHandChanges *h, struct PrefsStruct *toSave)
+{
+    SitePrefs_CarryChange(toSave, &h->after, &h->before);
+}
+
 BOOL SitePrefs_OnlyLookDiffers(const struct PrefsStruct *a, const struct PrefsStruct *b)
 {
     static struct PrefsStruct look;

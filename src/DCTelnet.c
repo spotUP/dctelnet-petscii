@@ -637,14 +637,18 @@ static void DisConnect(char remote, char quiet)
     }
 }
 
+// Settings changed by hand while connected: kept for the run, never saved.
+static struct SiteHandChanges handChanges;
+
 void SavePrefs(void)
 {
     // DCTelnet.Prefs only ever holds the global settings: during an entry
-    // session the live settings are the entry's, and menu changes made then
-    // are session-only.
+    // session the live settings are the entry's, and menu changes made
+    // while connected last for this run but are never written here.
     static struct PrefsStruct toSave;
 
     SitePrefs_ForSave(&toSave, &prefs, &globalPrefs, sessionSettingsId != 0);
+    SitePrefs_HandForSave(&handChanges, &toSave);   // changes made while connected: not saved
     fileHandle = Open(prefsFilename, MODE_NEWFILE);
     if(fileHandle)
     {
@@ -1931,6 +1935,7 @@ int main(int argc, char *argv[])
 
     if (! LoadPrefs()) goto clean_exit;
     Palette_EnsureAnsi(&prefs);     // older prefs files: palette from the RGB4 colours
+    SitePrefs_HandInit(&handChanges, &prefs);
 
     scrollbackList = AllocMem(sizeof(struct List), MEMF_CLEAR|MEMF_PUBLIC);
     if(!scrollbackList) goto clean_exit;
@@ -2749,8 +2754,8 @@ static void GetWindowMsg(struct Window *wwin)
             struct MenuItem *item = NULL;
             UWORD nextMenuNumber = MENUNULL;
             enum MenuItemID menuID;
-            // What the user changes by hand during an entry session is
-            // theirs everywhere: carried into the global settings below.
+            // What the user changes by hand while connected to an entry
+            // stays for the rest of the run, but is not saved (below).
             static struct PrefsStruct menuBefore;
 
             menuBefore = prefs;
@@ -3149,8 +3154,9 @@ static void GetWindowMsg(struct Window *wwin)
 
                 menuNumber = nextMenuNumber;
             } // while
-            if (sessionSettingsId)      // else prefs are the global settings already
-                SitePrefs_CarryChange(&globalPrefs, &menuBefore, &prefs);
+            // Changed while connected to an entry: kept for this run, not saved.
+            SitePrefs_HandChange(&handChanges, &globalPrefs, &menuBefore, &prefs,
+                                 sessionSettingsId != 0);
             break;
         }  // case IDCMP_MENUPICK
 

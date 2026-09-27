@@ -65,6 +65,29 @@ void SitePrefs_ForSave(struct PrefsStruct *out, const struct PrefsStruct *live,
 void SitePrefs_CarryChange(struct PrefsStruct *global, const struct PrefsStruct *before,
                            const struct PrefsStruct *after);
 
+/* Settings the user changed by hand while connected to an entry apply for
+ * the rest of the run -- a disconnect does not take them back -- but are
+ * never saved: DCTelnet.Prefs keeps what they replaced. A later change of
+ * the same setting while not connected is a real one and is saved.
+ * before: the saved value of every field; after: its value now. */
+struct SiteHandChanges
+{
+    struct PrefsStruct before, after;
+};
+
+/* Start the record from the settings as loaded. */
+void SitePrefs_HandInit(struct SiteHandChanges *h, const struct PrefsStruct *loaded);
+
+/* A menu pick changed the live settings from before to after. In an entry
+ * session the change is carried into global (the run keeps it) and noted
+ * as temporary; outside one it is a real change. */
+void SitePrefs_HandChange(struct SiteHandChanges *h, struct PrefsStruct *global,
+                          const struct PrefsStruct *before, const struct PrefsStruct *after,
+                          BOOL inSession);
+
+/* toSave (the global settings) with every temporary change taken back. */
+void SitePrefs_HandForSave(const struct SiteHandChanges *h, struct PrefsStruct *toSave);
+
 /* TRUE when a and b differ only in the terminal's look -- the font and the
  * palette. On the Workbench only the console reopens for that; the window
  * stays where it is. */
