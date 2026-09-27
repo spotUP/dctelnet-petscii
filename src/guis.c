@@ -923,7 +923,9 @@ static BOOL EditProfile(struct BookStruct *book, struct List *list)
     editProfileGTags[EP_TAG_PORT] = (unsigned long)book->port;
     editProfileGTags[EP_TAG_USERNAME] = (unsigned long)book->username;
     editProfileGTags[EP_TAG_PASSWORD] = (unsigned long)book->password;
-    editProfileGTags[EP_TAG_SETTINGS] = (unsigned long)(book->settingsId
+    // "Own" only when the entry's settings file really loads: a missing,
+    // truncated or foreign file means the entry connects with global settings.
+    editProfileGTags[EP_TAG_SETTINGS] = (unsigned long)(LoadEntrySettings(book->settingsId, &snapshot)
                                          ? "Own (saved with this entry)" : "Global");
 
     // Open the Edit Profile window
