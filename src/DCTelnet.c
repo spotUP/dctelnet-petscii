@@ -556,19 +556,25 @@ WORD GetMenuNumberFromID(enum MenuItemID id)
 }
 
 
+// The disconnect notice, kept when ending the connection reopens the display
+// (the C64 display goes, or an entry's settings end): printed again once the
+// display is back, which clears the console. Empty = nothing to reprint.
+static char disconnectNote[96];
+
 static void DisConnect(char remote, char quiet)
 {
     if(isConnected)
     {
+        disconnectNote[0] = 0;
         if(!quiet && !isAppIconified)
         {
             register ULONG spent;
-            if(remote)
-                LocalPrint("›m\r\nConnection closed by foreign host");
-            else
-                LocalPrint("›m\r\nConnection closed");
+
             spent = mytime() - conectionTime;
-            LocalFmt(". %02ld:%02ld:%02ld spent online.\r\n", spent/3600, (spent/60)%60, spent%60);
+            mysprintf(disconnectNote, "›m\r\n%s. %02ld:%02ld:%02ld spent online.\r\n",
+                      remote ? "Connection closed by foreign host" : "Connection closed",
+                      spent/3600, (spent/60)%60, spent%60);
+            LocalPrint(disconnectNote);
         }
         shutdown(tcpSocket, 2);
         CloseSocket(tcpSocket);
@@ -599,6 +605,8 @@ static void DisConnect(char remote, char quiet)
         // The connection ends, and with it any Address Book entry's settings.
         ForgetConnectedEntry();
         EndEntrySession();
+        if (!shouldRestart && !shouldReopenConsole)
+            disconnectNote[0] = 0;      // the display stays: the notice is still there
     }
 }
 
@@ -1928,6 +1936,13 @@ int main(int argc, char *argv[])
             {
                 SwitchPetsciiDisplay();
                 shouldReopenConsole = FALSE;
+            }
+
+            // A disconnect that reopened the display: its notice again.
+            if (disconnectNote[0] && !shouldRestart && !shouldReopenConsole && !isConnected)
+            {
+                LocalPrint(disconnectNote);
+                disconnectNote[0] = 0;
             }
 
             // After the reopen, so the connect sees the entry's display settings.
