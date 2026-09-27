@@ -4,57 +4,7 @@
 #include <exec/types.h>
 #include <string.h>     // size_t
 
-// Types
-struct PrefsStruct
-{
-    ULONG DisplayID;
-    UWORD DisplayWidth,
-          DisplayHeight,
-          DisplayDepth,
-          fontsize;
-    char  fontname[32],
-          downloadpath[52],
-          xferlibrary[52],
-          xferinit[52];
-    UWORD color[16];
-    ULONG flags;
-    UWORD win_left,
-          win_top,
-          win_width,
-          win_height,
-          sb_left,
-          sb_top,
-          sb_width,
-          sb_height;
-    char  uploadpath[52],
-          displaydriver[32];
-    ULONG sb_lines;
-    char  displayidstr[32];
-    UWORD toolBarWin_left,
-          toolBarWin_top;
-};
-
-/*
-* Bit flags stored in PrefsStruct->flags.
-* These defines describe the meaning of each individual bit.
-* These flags map directly to the checkable items in the "Options" pull-down menu
-*/
-#define FLAG_HIDE_TITLEBAR       (1UL << 0)   // BIT 0  = Hide Title Bar
-#define FLAG_CRLF_CORRECTION     (1UL << 1)   // BIT 1  = CRLF Correction
-#define FLAG_HIDE_LEDS           (1UL << 2)   // BIT 2  = Hide LEDS
-#define FLAG_USE_WORKBENCH       (1UL << 3)   // BIT 3  = Use Workbench
-#define FLAG_BS_DEL_SWAP         (1UL << 4)   // BIT 4  = BS/DEL Swap
-#define FLAG_DISABLE_SCROLLBACK  (1UL << 5)   // BIT 5  = Disable Scrollback
-#define FLAG_STRIP_COLOUR        (1UL << 6)   // BIT 6  = Strip Colour
-#define FLAG_SIMPLE_TELNET       (1UL << 7)   // BIT 7  = Very simple telnet negotiation.
-#define FLAG_PACKET_WINDOW       (1UL << 8)   // BIT 8  = Packet Window
-#define FLAG_USE_XEM_LIBRARY     (1UL << 9)   // BIT 9  = Use XEM Library
-#define FLAG_TOOL_BAR            (1UL << 10)  // BIT 10 = Tool bar
-#define FLAG_RETURN_CRLF         (1UL << 11)  // BIT 11 = Return = CR&LF
-#define FLAG_LOCAL_ECHO          (1UL << 12)  // BIT 12 = Local Echoback
-#define FLAG_RAW_CONNECTION      (1UL << 13)  // BIT 13 = Raw Connection (NO telnet negotiation data)
-#define FLAG_JUMP_SCROLL         (1UL << 14)  // BIT 14 = Jump Scroll
-#define FLAG_PETSCII_MODE        (1UL << 15)  // BIT 15 = PETSCII emulation (C64/C128)
+#include "prefs.h"         // struct PrefsStruct, FLAG_* bits
 
 
 // ID of the gadget in top right corner when title bar is hidden in full screen
@@ -143,6 +93,8 @@ extern struct Menu *mainMenuStrip;
 extern struct MsgPort *iconPort;
 extern struct NewWindow newWin;
 extern struct PrefsStruct prefs;
+extern struct PrefsStruct globalPrefs;   // global settings during an entry session
+extern ULONG sessionSettingsId;          // 0 = no entry session
 extern struct List *scrollbackList;
 extern struct Screen *scr;
 extern struct TextFont *ansiFont;

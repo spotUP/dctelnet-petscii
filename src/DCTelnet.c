@@ -49,6 +49,7 @@ static char MainWindowTitle[] =
 #include <arpa/telnet.h>
 #include "petscii_dispatch.h"
 #include "petscii_keymap.h"
+#include "site_prefs.h"
 #ifdef __VBCC__
     #pragma popwarn
 #endif
@@ -199,7 +200,12 @@ enum    {    GAD_SCROLLER,
         GAD_DOWN
     };
 
-struct PrefsStruct prefs;
+struct PrefsStruct prefs;         // live settings: what every part of DCTelnet reads
+// Global settings kept aside while connected to an Address Book entry that has
+// settings of its own (issue #10); only these are ever saved. Valid while
+// sessionSettingsId != 0.
+struct PrefsStruct globalPrefs;
+ULONG sessionSettingsId = 0;      // settings id of the connected entry, 0 = global settings
 
 static BPTR fileHandle;
 long nScrollbackLines;
@@ -527,10 +533,16 @@ static void DisConnect(char remote, char quiet)
 
 void SavePrefs(void)
 {
+    // DCTelnet.Prefs only ever holds the global settings: during an entry
+    // session the live settings are the entry's, and menu changes made then
+    // are session-only.
+    static struct PrefsStruct toSave;
+
+    SitePrefs_ForSave(&toSave, &prefs, &globalPrefs, sessionSettingsId != 0);
     fileHandle = Open(prefsFilename, MODE_NEWFILE);
     if(fileHandle)
     {
-        Write(fileHandle, &prefs, sizeof(struct PrefsStruct));
+        Write(fileHandle, &toSave, sizeof(struct PrefsStruct));
         Close(fileHandle);
     }
 }
