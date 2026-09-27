@@ -1043,6 +1043,9 @@ SetPenMap:
         move.w  #1,con_PenMapOn(A5)
         move.w  #1,con_BoldPens(A5)
         clr.w   con_FixedPen(A5)
+        move.w  #7,con_DefaultPen(A5)   ; ANSI order: white is 7 (1 is red;
+        move.w  #7,con_FgPen(A5)        ;   pen 1 was white only in the unit-1
+        clr.w   con_BgPen(A5)           ;   swapped order)
         movea.l g_GfxBase(A4),A6
         moveq   #0,D0
         move.w  con_FgPen(A5),D0
