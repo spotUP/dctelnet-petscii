@@ -1152,6 +1152,14 @@ SetPenMap:
 ; CSI 't' -- set the number of text rows from parameter 1.
 ; Parameter 0 (or missing): re-derive rows from window height / font.
 ; (Loose take on "set page length".)
+; FIXED(1.5): the default used wd_Height, which on a Workbench window
+; (GimmeZeroZero) counts the title bar and borders -- one or two rows too
+; many, so the bottom rows were drawn below the window and lost. It now
+; measures the grid exactly as a resize does (MeasureGrid). A row count
+; is clamped to the rows that fit. A sequence with more than one
+; parameter is not a page length -- xterm window operations
+; (ESC[8;24;80t) and PabloDraw true colour (ESC[0;r;g;bt) use CSI t --
+; and is ignored.
 ;---------------------------------------------------------------------
 Csi_t_SetRows:                          ; was AJL_0_56A
         subq.w  #4,A7
@@ -1159,26 +1167,38 @@ Csi_t_SetRows:                          ; was AJL_0_56A
         movea.l $14(A7),A0              ; A0 = params
         movea.l $10(A7),A5              ; A5 = con
         move.l  A6,$8(A7)
+        tst.l   $18(A7)                 ; last param index > 0: more
+        bne.b   .out                    ;   than one parameter, not ours
         move.b  (A0),D0                 ; param[0]
         bne.b   .fromParam
-        movea.l g_RastPort(A4),A1       ; default: window height/YSize
-        movea.l rp_Font(A1),A0
-        moveq   #0,D1
-        move.w  tf_YSize(A0),D1
-        movea.l g_Window(A4),A0
-        move.w  wd_Height(A0),D2
-        ext.l   D2
-        move.l  D2,D0
-        bsr.w   SDivMod32
-        move.w  D0,con_Rows(A5)
-        bra.b   .done
+        move.l  A5,-(A7)                ; default: the window's grid
+        bsr.w   MeasureGrid
+        addq.w  #4,A7
+        bra.b   .out
 .fromParam:
-        moveq   #0,D1
-        move.b  D0,D1
-        move.w  D1,con_Rows(A5)
+        moveq   #0,D2
+        move.b  D0,D2                   ; D2 = requested rows
+        movea.l g_RastPort(A4),A1
+        movea.l rp_Font(A1),A0
+        moveq   #0,D0
+        move.w  con_HeightPx(A5),D0
+        divu    tf_YSize(A0),D0         ; rows that fit
+        tst.w   D0
+        bne.b   .fitSome
+        moveq   #1,D0
+.fitSome:
+        cmp.w   D0,D2
+        bls.b   .fits
+        move.w  D0,D2                   ; clamp to the window
+.fits:
+        move.w  D2,con_Rows(A5)
+        cmp.w   con_Row(A5),D2          ; keep the cursor inside
+        bcc.b   .done
+        move.w  D2,con_Row(A5)
 .done:
         move.w  #1,con_RegTop(A5)       ; FIXED(r): row count changed
         move.w  con_Rows(A5),con_RegBot(A5) ; -> region = full window
+.out:
         movem.l (A7)+,D2/A5
         addq.w  #4,A7
         rts
