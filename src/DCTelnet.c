@@ -641,9 +641,9 @@ static void RunPendingConnect(void)
         {
             RememberConnectedEntry(pendingConnect.name, pendingConnect.host, pendingConnect.port);
             StampConnectedEntry();
+            strlcpy(username, pendingConnect.username, sizeof(username));
+            strlcpy(password, pendingConnect.password, sizeof(password));
         }
-        strlcpy(username, pendingConnect.username, sizeof(username));
-        strlcpy(password, pendingConnect.password, sizeof(password));
     }
     else
         EndEntrySession();
@@ -1242,7 +1242,13 @@ static void Finger(void)
         char * host = strchr(tbuf, '@');
         if(host)
         {
-            ULONG originalState = prefs.flags & FLAG_RAW_CONNECTION;
+            ULONG originalState;
+
+            // End any entry session (and its connection) BEFORE touching the
+            // flag: ending it later, inside the connect, would restore the
+            // global settings over FLAG_RAW_CONNECTION.
+            BeginEntrySession(0, NULL);
+            originalState = prefs.flags & FLAG_RAW_CONNECTION;
 
             host[0] = 0;
             *host++;

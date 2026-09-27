@@ -37,6 +37,10 @@ struct BookStruct
     char    res[78];        // reserved; old versions write it back byte for byte
 };
 
+// DCTelnet.Book is a headerless run of 256-byte records: a different size
+// would misread every existing book. Fails to compile if a field changes it.
+typedef char BookStructMustBe256Bytes[sizeof(struct BookStruct) == 256 ? 1 : -1];
+
 static BOOL EditProfile(struct BookStruct *book, struct List *list);
 
 /*
