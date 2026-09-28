@@ -124,6 +124,7 @@ static const struct { size_t offset, size; } prefsFields[] =
     F(uploadpath), F(displaydriver), F(sb_lines), F(displayidstr),
     F(toolBarWin_left), F(toolBarWin_top), F(ansiMagic), F(ansiRGB),
     F(redialTries), F(redialDelay), F(antiIdleMinutes), F(connectTimeout), F(charset),
+    F(bell), F(ansiMusic),
     F(extReserved)      /* a setting carved from it gets its own entry */
 #undef F
 };

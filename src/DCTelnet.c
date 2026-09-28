@@ -66,6 +66,8 @@ extern struct Library *CyberGfxBase;
 #include "rexxcmd.h"
 #include "rlogin.h"
 #include "charset.h"
+#include "ansimusic.h"
+#include "sound.h"
 #include <rexx/storage.h>
 #include <rexx/rxslib.h>
 #include <proto/rexxsyslib.h>
@@ -161,6 +163,11 @@ static struct NewMenu mainMenuDesc[] =
     {     NM_SUB, "IBM PC (CP437)",                 0,   CHECKIT, ~1L & 7,              (APTR)MENU_CHARSET_CP437},
     {     NM_SUB, "Amiga (ISO-8859-1)",             0,   CHECKIT, ~2L & 7,              (APTR)MENU_CHARSET_LATIN1},
     {     NM_SUB, "UTF-8",                          0,   CHECKIT, ~4L & 7,              (APTR)MENU_CHARSET_UTF8},
+    {    NM_ITEM, "Bell",                           0,   0,                           0, (APTR)MENU_BELL},
+    {     NM_SUB, "Flash",                          0,   CHECKIT, ~1L & 7,              (APTR)MENU_BELL_FLASH},
+    {     NM_SUB, "Sound",                          0,   CHECKIT, ~2L & 7,              (APTR)MENU_BELL_SOUND},
+    {     NM_SUB, "Off",                            0,   CHECKIT, ~4L & 7,              (APTR)MENU_BELL_OFF},
+    {    NM_ITEM, "ANSI Music",                     0,   HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_ANSI_MUSIC},
     {    NM_ITEM, "Local Echoback",                 "6", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_LOCAL_ECHOBACK},
     {    NM_ITEM, "Rlogin",                         0 ,     HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_RLOGIN},
     {    NM_ITEM, "Raw Connection",                 "7", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_RAW_CONNECTION},
@@ -200,6 +207,8 @@ static ULONG RexxSig(void);
 static void RexxMessages(void);
 static void CancelConnectionJobs(void);
 static UBYTE *DisplayBytes(UBYTE *data, long *len);
+static UBYTE *SoundFilter(UBYTE *text, long *len);
+static struct AnsiMusic ansiMusic;      // Options > ANSI Music: a tune split between reads
 static struct Utf8Decoder utf8In;       // Character Set UTF-8: a character split between reads
 static BOOL rloginAckPending;         // rlogin: the server's NUL answer is still to come
 static void ScheduleKeepAlive(void);
@@ -1177,6 +1186,7 @@ static void RunPendingConnect(void)
     if (BeginServerConnection(pendingConnect.host, pendingConnect.port) == RETURN_OK)
     {
         Charset_Utf8Init(&utf8In);
+        AnsiMusic_Init(&ansiMusic);
         if (prefs.flags & FLAG_RLOGIN)          // rlogin: the login message first
         {
             char hello[160];
@@ -2016,6 +2026,8 @@ static void Receive(void)
             long shown = len;
             UBYTE *text = DisplayBytes(recvBuffer, &shown);
 
+            text = SoundFilter(text, &shown);
+
             BbsWrite((char *)text, shown);
             if(!(prefs.flags & FLAG_DISABLE_SCROLLBACK))   AddBuf(text, shown);
         }
@@ -2094,7 +2106,11 @@ static void Receive(void)
                                                                       outBuffer + done, (size_t)chunk,
                                                                       petsciiOut, sizeof(petsciiOut));
                     }
-                    ConWrite((char *)petsciiOut, petsciiOutLen);
+                    {
+                        UBYTE *played = SoundFilter(petsciiOut, &petsciiOutLen);   // the Bell
+
+                        ConWrite((char *)played, petsciiOutLen);
+                    }
                     if(!(prefs.flags & FLAG_DISABLE_SCROLLBACK))
                         AddBuf((char *)petsciiOut, petsciiOutLen);
                 }
@@ -2103,6 +2119,8 @@ static void Receive(void)
             {
                 long shown = outLen;
                 UBYTE *text = DisplayBytes(outBuffer, &shown);
+
+                text = SoundFilter(text, &shown);
 
                 BbsWrite((char *)text, shown);
 
@@ -2879,6 +2897,7 @@ clean_exit:
     DisConnect(FALSE, TRUE);
     RexxClose();
     TimerClose();
+    Sound_Close();
     CaptureStop();                  // the capture file is complete
     CloseDisplay(TRUE);
 
@@ -2953,6 +2972,28 @@ static UBYTE *DisplayBytes(UBYTE *data, long *len)
         return data;
     *len = (long)Charset_Utf8ToCp437(&utf8In, data, (size_t)*len, decoded);
     return decoded;
+}
+
+// What DCTelnet plays itself leaves the text for the console: ANSI music
+// (Options > ANSI Music) and, unless the Bell is Flash, BEL.
+
+static UBYTE *SoundFilter(UBYTE *text, long *len)
+{
+    static UBYTE played[4096 + 2];
+    static struct Note notes[48];
+    size_t n = (size_t)*len;
+    int count;
+
+    if (prefs.ansiMusic && !PETSCII_SESSION() && n <= 4096)
+    {
+        n = AnsiMusic_Filter(&ansiMusic, text, n, played, notes, 48, &count);
+        text = played;
+        if (count) Sound_Play(notes, count);
+    }
+    if (prefs.bell != BELL_FLASH && Ansi_StripByte(text, &n, 7) && prefs.bell == BELL_SOUND)
+        Sound_Beep();
+    *len = (long)n;
+    return text;
 }
 
 // DC Telnet > Capture to File: everything the BBS sends -- after the telnet
@@ -4163,6 +4204,18 @@ static void GetWindowMsg(struct Window *wwin)
                         UpdatePrefsFlagFromMenu(item, FLAG_VT_KEYS);
                         break;
 
+                    case MENU_BELL_FLASH:
+                    case MENU_BELL_SOUND:
+                    case MENU_BELL_OFF:
+                        prefs.bell = (UBYTE)((ULONG)GTMENUITEM_USERDATA(item) - MENU_BELL_FLASH);
+                        if (prefs.bell == BELL_SOUND) Sound_Beep();      // how it sounds
+                        break;
+
+                    case MENU_ANSI_MUSIC:
+                        prefs.ansiMusic = (item->Flags & CHECKED) != 0;
+                        AnsiMusic_Init(&ansiMusic);
+                        break;
+
                     case MENU_CHARSET_CP437:
                     case MENU_CHARSET_LATIN1:
                     case MENU_CHARSET_UTF8:
@@ -5319,6 +5372,10 @@ void CreateAppMenus(void)
     GetNewMenuItemFromID(MENU_CHARSET_CP437)->nm_Flags  = CHECKIT | (prefs.charset == CHARSET_CP437 ? CHECKED : 0);
     GetNewMenuItemFromID(MENU_CHARSET_LATIN1)->nm_Flags = CHECKIT | (prefs.charset == CHARSET_LATIN1 ? CHECKED : 0);
     GetNewMenuItemFromID(MENU_CHARSET_UTF8)->nm_Flags   = CHECKIT | (prefs.charset == CHARSET_UTF8 ? CHECKED : 0);
+    GetNewMenuItemFromID(MENU_BELL_FLASH)->nm_Flags = CHECKIT | (prefs.bell == BELL_FLASH ? CHECKED : 0);
+    GetNewMenuItemFromID(MENU_BELL_SOUND)->nm_Flags = CHECKIT | (prefs.bell == BELL_SOUND ? CHECKED : 0);
+    GetNewMenuItemFromID(MENU_BELL_OFF)->nm_Flags   = CHECKIT | (prefs.bell == BELL_OFF ? CHECKED : 0);
+    GetNewMenuItemFromID(MENU_ANSI_MUSIC)->nm_Flags = HIGHCOMP | CHECKIT | MENUTOGGLE | (prefs.ansiMusic ? CHECKED : 0);
     SetNewMenuCheckFromPref(MENU_LOCAL_ECHOBACK,       FLAG_LOCAL_ECHO);
     SetNewMenuCheckFromPref(MENU_RAW_CONNECTION,       FLAG_RAW_CONNECTION);
     SetNewMenuCheckFromPref(MENU_RLOGIN,               FLAG_RLOGIN);

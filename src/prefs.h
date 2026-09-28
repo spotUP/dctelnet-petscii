@@ -58,8 +58,14 @@ struct PrefsStruct
                                    stack's own limit */
     UBYTE charset;              /* what the BBS sends: CHARSET_CP437 (0),
                                    _LATIN1, _UTF8 (charset.h) */
-    UBYTE extReserved[59];
+    UBYTE bell;                 /* BEL: BELL_FLASH (0), BELL_SOUND, BELL_OFF */
+    UBYTE ansiMusic;            /* <>0: play ANSI music (ansimusic.h) */
+    UBYTE extReserved[57];
 };
+
+#define BELL_FLASH 0     /* prefs.bell: the screen flashes (DisplayBeep) */
+#define BELL_SOUND 1     /*   a short tone */
+#define BELL_OFF   2
 
 #define PREFS_V1_SIZE     376
 #define PREFS_V2_SIZE     444   /* up to and with ansiRGB */
