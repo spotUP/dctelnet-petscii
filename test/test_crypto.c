@@ -9,6 +9,7 @@
 #include "crypto/x25519.h"
 #include "crypto/random.h"
 #include "crypto_vectors.h"
+#include "bignum_vectors.h"
 
 static void hex(const char *h, UBYTE *out, size_t n)
 {
@@ -109,13 +110,85 @@ static void test_group14_modexp(void)
     hex(group14P, p, 256);
     hex(dhX, x, 64);
     hex(dhF, f, 256);
-    assert(Bn_SetMod(&mod, p, 256) && mod.n == 128);
+    assert(Bn_SetMod(&mod, p, 256) && mod.n == 64);
     memset(two, 0, sizeof(two));
     two[255] = 2;
     Bn_ModExp(&mod, two, x, 64, out);
     assert(same(out, dhE));
     Bn_ModExp(&mod, f, x, 64, out);
     assert(same(out, dhK));
+}
+
+/* RFC 7748 5.2: k = u = 9, then k, u = X25519(k, u), k -- once and 1000
+ * times. Catches a wrong reduction that one vector can miss. */
+#ifndef X25519_ITERATIONS
+#define X25519_ITERATIONS 1000      /* 1 when run on a real (slow) Amiga */
+#endif
+static void test_x25519_iterated(void)
+{
+    UBYTE k[32], u[32], r[32];
+    int i;
+
+    memset(k, 0, 32); k[0] = 9;
+    memcpy(u, k, 32);
+    for (i = 1; i <= X25519_ITERATIONS; i++)
+    {
+        X25519(r, k, u);
+        memcpy(u, k, 32);
+        memcpy(k, r, 32);
+        if (i == 1) assert(same(k, "422c8e7a6227d7bca1350b3e2bb7279f7897b87bb6854b783c60e80311ae3079"));
+    }
+    if (X25519_ITERATIONS == 1000)
+        assert(same(k, "684cf59ba83309552800ef566f2f4d3c1c3887c49360e3875f2eb94d99532c51"));
+}
+
+/* The one multiply primitive (asm on the Amiga): r += a * w with the carry
+ * out, at the largest multiplier. */
+static void test_muladd(void)
+{
+    ULONG r[5];
+    memcpy(r, mulAddR, sizeof(r));
+    assert(Bn_MulAdd(r, mulAddA, 5, 0xFFFFFFFFUL) == mulAddWant[5]);
+    assert(memcmp(r, mulAddWant, sizeof(r)) == 0);
+}
+
+/* Moduli whose length is no multiple of 32 bits (R^2 mod m starts from a
+ * partial top limb), up to 4096 bits. */
+static void test_modexp_sizes(void)
+{
+    static struct BnMod mod;
+    static UBYTE m[512], base[512], exp[40], out[512], want[512];
+    size_t c;
+
+    for (c = 0; c < sizeof(modexpCases) / sizeof(modexpCases[0]); c++)
+    {
+        size_t mLen = strlen(modexpCases[c].m) / 2, bLen = strlen(modexpCases[c].base) / 2;
+        size_t wLen = strlen(modexpCases[c].want) / 2;
+        static UBYTE b[512];
+        hex(modexpCases[c].m, m, mLen);
+        hex(modexpCases[c].base, b, bLen);
+        hex(modexpCases[c].exp, exp, 40);
+        hex(modexpCases[c].want, want, wLen);
+        assert(Bn_SetMod(&mod, m, mLen));
+        Bn_Fit(b, bLen, base, Bn_Bytes(&mod));
+        Bn_ModExp(&mod, base, exp, 40, out);
+        Bn_Fit(want, wLen, b, Bn_Bytes(&mod));
+        assert(memcmp(out, b, Bn_Bytes(&mod)) == 0);
+    }
+}
+
+/* An RSA-4096 signature (the host key size of bbs.uprough.net). */
+static void test_rsa4096_signature(void)
+{
+    static UBYTE n[512], sig[512], hash[32];
+    static const UBYTE e[3] = { 1, 0, 1 };
+
+    hex(rsaN4, n, 512);
+    hex(rsaSig4, sig, 512);
+    Sha256(rsaMsg, sizeof(rsaMsg) - 1, hash);
+    assert(Rsa_VerifySha256(n, 512, e, 3, sig, 512, hash));
+    sig[511] ^= 1;
+    assert(!Rsa_VerifySha256(n, 512, e, 3, sig, 512, hash));
 }
 
 /* An RSA-2048 signature made with openssl: it checks; one bit off does not. */
@@ -172,7 +245,11 @@ int main(void)
 {
     test_random_pool();
     test_x25519();
+    test_x25519_iterated();
+    test_muladd();
+    test_modexp_sizes();
     test_group14_modexp();
+    test_rsa4096_signature();
     test_rsa_sha256_signature();
     test_aes128_ctr();
     test_sha256();

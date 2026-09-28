@@ -15,7 +15,7 @@ BOOL Rsa_VerifySha256(const UBYTE *n, size_t nLen, const UBYTE *e, size_t eLen,
 
     if (!Bn_SetMod(&mod, n, nLen))
         return FALSE;
-    k = (size_t)mod.n * 2;                          /* bytes of the limb width */
+    k = Bn_Bytes(&mod);                             /* bytes of the limb width */
     if (sigLen > k)
         return FALSE;
     Bn_Fit(sig, sigLen, s, k);
