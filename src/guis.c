@@ -30,6 +30,7 @@
 #include "iconpens.h"
 #include "screenfont.h"
 #include "ansiscan.h"
+#include "booklist.h"
 #include <intuition/sghooks.h>
 
 struct BookStruct
@@ -993,6 +994,98 @@ return TRUE  if the user validated the changes (OK)
        FALSE if the user cancelled or closed the window
  */
 // Next free settings id: one above the highest id in the Address Book list.
+/*
+ * Connection > Import Address Book...: a SyncTERM phone book (syncterm.lst)
+ * added to DCTelnet.Book. An entry already there (the same host and port) is
+ * skipped, and so is one DCTelnet cannot connect to (SSH, modem ...); RLogin
+ * and Raw entries get their own Terminal settings (Rlogin, Raw Connection).
+ */
+#define IMPORT_MAX (256 * 1024)
+
+static char *ReadWholeFile(const char *path, LONG *size)
+{
+    BPTR fh = Open((STRPTR)path, MODE_OLDFILE);
+    char *data = NULL;
+
+    *size = 0;
+    if (!fh)
+        return NULL;
+    Seek(fh, 0, OFFSET_END);
+    *size = Seek(fh, 0, OFFSET_BEGINNING);          /* Seek returns the old position */
+    if (*size > 0 && *size <= IMPORT_MAX && (data = AllocVec(*size + 1, MEMF_ANY)))
+        *size = Read(fh, data, *size);
+    Close(fh);
+    return data;
+}
+
+void ImportBookList(const char *path)
+{
+    static struct BookStruct rec;
+    static struct SiteSettings entry;
+    struct ImportedBbs b;
+    struct BookStruct *book;
+    LONG listSize, bookSize, nBook, i;
+    char *list = ReadWholeFile(path, &listSize), *old;
+    ULONG maxId = 0;
+    size_t pos = 0;
+    int added = 0, known = 0, other = 0;
+    BPTR out;
+
+    if (!list || listSize <= 0)
+    {
+        InfoReq(NULL, "%s could not be read.", (char *)path);
+        if (list) FreeVec(list);
+        return;
+    }
+    old = ReadWholeFile(bookFilename, &bookSize);   /* for the duplicates and the ids */
+    book = (struct BookStruct *)old;
+    nBook = old ? bookSize / (LONG)sizeof(struct BookStruct) : 0;
+    for (i = 0; i < nBook; i++)
+        if (book[i].settingsId > maxId) maxId = book[i].settingsId;
+    if (!(out = Open(bookFilename, MODE_READWRITE)))
+    {
+        InfoReq(NULL, "The Address Book could not be written.");
+        FreeVec(list);
+        if (old) FreeVec(old);
+        return;
+    }
+    Seek(out, 0, OFFSET_END);
+    while (BookList_Next(list, (size_t)listSize, &pos, &b))
+    {
+        BOOL there = FALSE;
+
+        if (b.type == BBS_OTHER) { other++; continue; }
+        for (i = 0; i < nBook && !there; i++)
+            there = book[i].port == b.port && stricmp(book[i].host, b.host) == 0;
+        if (there) { known++; continue; }
+        memset(&rec, 0, sizeof(rec));
+        strlcpy(rec.name, b.name, sizeof(rec.name));
+        strlcpy(rec.host, b.host, sizeof(rec.host));
+        strlcpy(rec.username, b.user, sizeof(rec.username));
+        strlcpy(rec.password, b.pass, sizeof(rec.password));
+        rec.port = b.port;
+        if (b.type != BBS_TELNET)
+        {
+            memset(&entry, 0, sizeof(entry));
+            entry.groups = SITE_GROUP_TERMINAL;
+            entry.prefs = *GlobalSettings();
+            entry.prefs.flags &= ~(FLAG_RLOGIN | FLAG_RAW_CONNECTION);
+            entry.prefs.flags |= b.type == BBS_RLOGIN ? FLAG_RLOGIN : FLAG_RAW_CONNECTION;
+            memcpy(entry.fKeys, fKeys, sizeof(entry.fKeys));
+            if (SaveEntrySettings(maxId + 1, &entry))
+                rec.settingsId = ++maxId;
+        }
+        Write(out, &rec, sizeof(rec));
+        added++;
+    }
+    Close(out);
+    FreeVec(list);
+    if (old) FreeVec(old);
+    InfoReq(NULL, "%ld entries added to the Address Book.\n"
+                  "%ld were there already, %ld use a connection DCTelnet does not have\n"
+                  "(SSH, modem, serial).", (LONG)added, (LONG)known, (LONG)other);
+}
+
 static ULONG NextSettingsId(struct List *list)
 {
     struct Node *node;

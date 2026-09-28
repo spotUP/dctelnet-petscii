@@ -138,6 +138,7 @@ static struct NewMenu mainMenuDesc[] =
     {    NM_ITEM, "Disconnect",                     "H",             0,               0, (APTR)MENU_DISCONNECT},
     {    NM_ITEM, NM_BARLABEL,                       0 ,             0,               0, (APTR)MENU_BAR4},
     {    NM_ITEM, "Address Book",                   "B",             0,               0, (APTR)MENU_ADDRESS_BOOK},
+    {    NM_ITEM, "Import Address Book...",          0 ,             0,               0, (APTR)MENU_IMPORT_BOOK},
     {    NM_ITEM, NM_BARLABEL,                       0 ,             0,               0, (APTR)MENU_BAR5},
     {    NM_ITEM, "Information",                    "^",             0,               0, (APTR)MENU_INFORMATION},
 
@@ -4130,6 +4131,21 @@ static void GetWindowMsg(struct Window *wwin)
                         if (!StopRedial())
                             DisConnect(FALSE, FALSE);
                         break;
+
+                    case MENU_IMPORT_BOOK:
+                    {
+                        char dir[256], name[108];
+
+                        dir[0] = 0;
+                        strlcpy(name, "syncterm.lst", sizeof(name));
+                        if (FileRequester(isRunningOnWB ? NULL : win, dir, sizeof(dir), name, sizeof(name),
+                                          "#?.lst", FILEREQ_LOAD))
+                        {
+                            AddPart(dir, name, sizeof(dir));
+                            ImportBookList(dir);
+                        }
+                        break;
+                    }
 
                     case MENU_ADDRESS_BOOK:
                         WindowSub(AddressBook);
