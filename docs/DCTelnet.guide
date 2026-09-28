@@ -382,10 +382,14 @@ NOTE: See...@{b}@{u} Preferences menu, XEM LIBRARY @{ub}@{uu}
   Puts icons at the top of the window so you have easier access to
 Connect, Disconnect, Address, Info, Upload, Download & Quit.
 
-  If you wish to change these icons, they are located in the
-   SCIcons and WBIcons directory, and use standard file names.
-   They are Project type icons.  So, you can use your favorate
-   icon editor.
+  The icons are in the ToolBar drawer: ToolBar/Square for screens with
+square pixels, ToolBar/Wide for modes whose pixels are twice as tall
+(such as 640x256). They carry their own colours (the tool type
+DCTELNET_PALETTE), so they look the same on every screen.
+
+  To use icons of your own, replace the files with Project icons of the
+same names; the first tool type is the label under the icon. Icons
+without DCTELNET_PALETTE are drawn with the screen's pens as they are.
 
                               @{b}@{u} Return = CR+LF @{ub}@{uu}
                                ~~~~~~~~~~~~~~
@@ -677,9 +681,9 @@ Bug Fixes:
 - Typing in a field entered with Tab now replaces its text
 - Finger replies are no longer shown as a staircase
 - F1 in PETSCII Mode sent the code of F2
-- The Workbench tool bar icons needed the MagicWB palette and showed pink
-  and cyan on other palettes. New flat icons use only the 4 standard
-  Workbench colours.
+- The tool bar icons were drawn for fixed pens and showed pink, cyan and
+  blue on most screens. New flat, antialiased icons carry their own
+  colours and are matched to every screen, in a square and a wide set.
 
 
 

@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
-"""Builds and checks the Workbench tool bar icons (build/package/DCTelnet/WBIcons).
+"""Builds and checks the tool bar icons (build/package/DCTelnet/ToolBar/Square and Wide).
 
-The icons DCTelnet 1.6 shipped were drawn in 8 colours for the MagicWB palette;
-on a standard Workbench pens 4-7 hold other colours and they came out pink and
-cyan. The tool bar (OpenToolBarWindow, src/guis.c) draws the icon's planar
-images directly, so the images must use only the 4 pens every Workbench has.
+The icons DCTelnet 1.6 shipped were drawn for fixed pens: 8 colours of the
+MagicWB palette. On any other palette -- a standard Workbench, DCTelnet's own
+256-colour screen -- those pens hold other colours and the icons came out pink,
+cyan and blue.
+
+These icons carry their colours instead: an 8-colour image plus the tool type
+DCTELNET_PALETTE=RRGGBB,... (one entry per pen of the image). DCTelnet maps
+each colour to the closest pen of the screen the tool bar opens on
+(src/iconpens.c, OpenToolBarWindow in src/guis.c), so the colours suit every
+screen, and the symbols can be antialiased. What differs between screens is
+the shape of their pixels: Square holds 24x24 symbols, Wide the same twice as
+wide for modes whose pixels are twice as tall (hires without interlace, such
+as 640x256), where square art looked squeezed.
 
 The symbols are Lucide icons (ISC, tools/toolbar_icons/LICENSE), rendered with
-rsvg-convert: black on grey (pens 1 on 0) normally, white on blue (2 on 3)
-pressed. Every byte of the icon other than the two images is kept.
+rsvg-convert: black on grey normally, white on blue pressed, with two blend
+colours each for the antialiased edges. Every byte of the icon other than the
+two images and the tool types is kept.
 
-  toolbar_icons.py build [ICONDIR]   render the SVGs into the icons in ICONDIR
-  toolbar_icons.py check [ICONDIR]   verify every icon: 2 images, depth 2, whole file parsed
+  toolbar_icons.py build [ICONDIR...]  render the SVGs into the icons (default: both drawers)
+  toolbar_icons.py check [ICONDIR...]  verify every icon
   toolbar_icons.py preview OUT.png [ICONDIR]
 """
 import os
@@ -21,17 +31,26 @@ import sys
 import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ICONDIR = os.path.join(HERE, "..", "build", "package", "DCTelnet", "WBIcons")
+PACKAGE = os.path.join(HERE, "..", "build", "package", "DCTelnet")
+ICONDIRS = [os.path.join(PACKAGE, "ToolBar", "Square"), os.path.join(PACKAGE, "ToolBar", "Wide")]
+# Symbol size (width, height) in pixels per set.
+SYMBOL_SIZES = {"Square": (24, 24), "Wide": (48, 24)}
 SVGDIR = os.path.join(HERE, "toolbar_icons")
 
 # Icon file -> Lucide symbol.
 SYMBOLS = {"connect": "plug-zap", "disconnect": "unplug", "addressbook": "book-user",
            "information": "info", "upload": "upload", "download": "download", "quit": "power"}
 
-PALETTE = [(0xAA, 0xAA, 0xAA), (0x00, 0x00, 0x00), (0xFF, 0xFF, 0xFF), (0x66, 0x88, 0xBB)]
-NORMAL = (1, 0)      # symbol pen, background pen
-PRESSED = (2, 3)
-SYMBOL_SIZE = 24
+# Pen 0 is the background: DCTelnet draws it with the window's background pen,
+# so an icon blends into any tool bar. Pens 0-3 are the standard Workbench
+# colours; 4-7 the blends of the antialiased edges.
+PALETTE = [(0xAA, 0xAA, 0xAA), (0x00, 0x00, 0x00), (0xFF, 0xFF, 0xFF), (0x66, 0x88, 0xBB),
+           (0x71, 0x71, 0x71), (0x38, 0x38, 0x38), (0x99, 0xB0, 0xD2), (0xCC, 0xD7, 0xE8)]
+NORMAL = (0, 4, 5, 1)    # background, 1/3, 2/3, full symbol
+PRESSED = (3, 6, 7, 2)
+DEPTH = 3
+PALETTE_TOOLTYPE = "DCTELNET_PALETTE=" + ",".join("%02X%02X%02X" % c for c in PALETTE)
+
 
 HEADER = 78          # struct DiskObject as stored
 DRAWERDATA = 56      # struct OldDrawerData
@@ -48,11 +67,11 @@ class Image:
         if offset + self.size > len(raw):
             raise ValueError("image data runs past the end of the file")
 
-    def encode(self, pixels):
-        """This image's header with 2 planes holding `pixels` (rows of pens 0-3)."""
+    def encode(self, pixels, depth=DEPTH):
+        """This image's header with `depth` planes holding `pixels` (rows of pens)."""
         out = bytearray(struct.pack(">hhhhhIBBI", self.left, self.top, self.width, self.height,
-                                    2, self.dataptr or 1, 3, 0, self.nextptr))
-        for bit in range(2):
+                                    depth, self.dataptr or 1, (1 << depth) - 1, 0, self.nextptr))
+        for bit in range(depth):
             for row in pixels:
                 data = bytearray(self.rowbytes)
                 for x, pen in enumerate(row):
@@ -85,6 +104,7 @@ class Icon:
         if default_tool:
             offset = self._string(offset)
         self.tool_types = []
+        self.tool_types_start = offset
         if tool_types:
             count = struct.unpack_from(">I", raw, offset)[0] // 4 - 1
             offset += 4
@@ -92,6 +112,7 @@ class Icon:
                 end = self._string(offset)
                 self.tool_types.append(raw[offset + 4:end].rstrip(b"\0").decode("latin-1"))
                 offset = end
+        self.tool_types_end = offset
         if tool_window:
             offset = self._string(offset)
         revision = struct.unpack_from(">I", raw, 4 + 40)[0] & 0xFF   # gg_UserData
@@ -105,25 +126,34 @@ class Icon:
             raise ValueError("string runs past the end of the file")
         return offset + 4 + length
 
-    def with_images(self, normal, pressed):
-        body = self.images[0].encode(normal) + self.images[1].encode(pressed)
-        return self.raw[:self.image_start] + body + self.raw[self.image_end:]
+    def rebuilt(self, normal, pressed, tool_types):
+        """The icon with new images and tool types; every other byte kept."""
+        images = self.images[0].encode(normal) + self.images[1].encode(pressed)
+        types = struct.pack(">I", (len(tool_types) + 1) * 4)
+        for t in tool_types:
+            data = t.encode("latin-1") + b"\0"
+            types += struct.pack(">I", len(data)) + data
+        return (self.raw[:self.image_start] + images
+                + self.raw[self.image_end:self.tool_types_start] + types
+                + self.raw[self.tool_types_end:])
 
 
-def symbol_mask(name):
-    """The Lucide symbol as rows of booleans, SYMBOL_SIZE square."""
-    png = subprocess.run(["rsvg-convert", "-w", str(SYMBOL_SIZE), "-h", str(SYMBOL_SIZE),
+def symbol_coverage(name, size):
+    """The Lucide symbol as rows of coverage 0-3 (none, 1/3, 2/3, full), size = (w, h);
+    rsvg-convert stretches it when w != h."""
+    sw, sh = size
+    png = subprocess.run(["rsvg-convert", "-w", str(sw), "-h", str(sh),
                           os.path.join(SVGDIR, name + ".svg")], check=True, capture_output=True).stdout
     alpha = subprocess.run(["magick", "png:-", "-alpha", "extract", "-depth", "8", "gray:-"],
                            input=png, check=True, capture_output=True).stdout
-    return [[alpha[y * SYMBOL_SIZE + x] >= 128 for x in range(SYMBOL_SIZE)] for y in range(SYMBOL_SIZE)]
+    return [[(alpha[y * sw + x] * 3 + 127) // 255 for x in range(sw)] for y in range(sh)]
 
 
-def compose(mask, width, height, pens):
-    fg, bg = pens
-    left, top = (width - SYMBOL_SIZE) // 2, (height - SYMBOL_SIZE) // 2
-    return [[fg if 0 <= y - top < SYMBOL_SIZE and 0 <= x - left < SYMBOL_SIZE and mask[y - top][x - left]
-             else bg for x in range(width)] for y in range(height)]
+def compose(cover, width, height, pens):
+    sh, sw = len(cover), len(cover[0])
+    left, top = (width - sw) // 2, (height - sh) // 2
+    return [[pens[cover[y - top][x - left]] if 0 <= y - top < sh and 0 <= x - left < sw
+             else pens[0] for x in range(width)] for y in range(height)]
 
 
 def build(icondir):
@@ -133,8 +163,10 @@ def build(icondir):
         if len(icon.images) != 2:
             raise ValueError(path + ": needs a normal and a pressed image")
         w, h = icon.images[0].width, icon.images[0].height
-        mask = symbol_mask(symbol)
-        out = icon.with_images(compose(mask, w, h, NORMAL), compose(mask, w, h, PRESSED))
+        cover = symbol_coverage(symbol, SYMBOL_SIZES[os.path.basename(os.path.normpath(icondir))])
+        label = icon.tool_types[:1]
+        out = icon.rebuilt(compose(cover, w, h, NORMAL), compose(cover, w, h, PRESSED),
+                           label + [PALETTE_TOOLTYPE])
         open(path, "wb").write(out)
 
 
@@ -151,7 +183,7 @@ def pixels(icon, raw, image):
 
 
 def check(icondir):
-    """Every tool bar icon parses to its last byte and draws with pens 0-3 only."""
+    """Every tool bar icon parses to its last byte and carries the palette of its pens."""
     errors = []
     for icon_name in SYMBOLS:
         path = os.path.join(icondir, icon_name + ".info")
@@ -162,11 +194,14 @@ def check(icondir):
             if len(icon.images) != 2:
                 errors.append("%s: %d images, want normal + pressed" % (path, len(icon.images)))
             for image in icon.images:
-                if image.depth != 2 or image.pick != 3:
-                    errors.append("%s: depth %d PlanePick %d, want 2 and 3 (4 Workbench pens)"
-                                  % (path, image.depth, image.pick))
-            if not icon.tool_types:
-                errors.append(path + ": no tool type (the tool bar uses the first as its label)")
+                if image.depth != DEPTH or image.pick != (1 << DEPTH) - 1:
+                    errors.append("%s: depth %d PlanePick %d, want %d and %d"
+                                  % (path, image.depth, image.pick, DEPTH, (1 << DEPTH) - 1))
+            if not icon.tool_types or icon.tool_types[0].startswith("DCTELNET_"):
+                errors.append(path + ": no label (the tool bar shows the first tool type)")
+            if PALETTE_TOOLTYPE not in icon.tool_types:
+                errors.append(path + ": no DCTELNET_PALETTE tool type: its pens would draw in"
+                              " whatever colours the screen has there")
         except ValueError as e:
             errors.append("%s: %s" % (path, e))
     for e in errors:
@@ -207,12 +242,15 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] not in ("build", "check", "preview"):
         sys.exit(__doc__)
     if sys.argv[1] == "preview":
-        preview(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else ICONDIR)
+        preview(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else ICONDIRS[0])
         return
-    icondir = sys.argv[2] if len(sys.argv) > 2 else ICONDIR
-    if sys.argv[1] == "build":
-        build(icondir)
-    sys.exit(0 if check(icondir) else 1)
+    icondirs = sys.argv[2:] or ICONDIRS
+    ok = True
+    for icondir in icondirs:
+        if sys.argv[1] == "build":
+            build(icondir)
+        ok = check(icondir) and ok
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
