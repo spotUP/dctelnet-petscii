@@ -15,6 +15,7 @@
 #ifdef __VBCC__
     #pragma popwarn
 #endif
+#include <devices/timer.h>
 #include "connect.h"
 #include "DCTelnet.h"
 #include "guis.h"
@@ -135,6 +136,25 @@ static void CloseConnectingWindow( void )
  */
 void __SAVE_DS__ __ASM__ HandleConnectingWindowTask(void)
 {
+    // Settings > Connection Options timeout: a timer.device request of our
+    // own; when it runs out the connect is stopped as Abort stops it.
+    struct MsgPort *timerPort = NULL;
+    struct timerequest *timerReq = NULL;
+    BOOL timerOpen = FALSE, timerDone = FALSE;
+    ULONG timersig = 0;
+
+    if (prefs.connectTimeout
+        && (timerPort = CreateMsgPort())
+        && (timerReq = (struct timerequest *)CreateIORequest(timerPort, sizeof(*timerReq)))
+        && (timerOpen = !OpenDevice(TIMERNAME, UNIT_VBLANK, (struct IORequest *)timerReq, 0)))
+    {
+        timerReq->tr_node.io_Command = TR_ADDREQUEST;
+        timerReq->tr_time.tv_secs    = prefs.connectTimeout;
+        timerReq->tr_time.tv_micro   = 0;
+        SendIO((struct IORequest *)timerReq);
+        timersig = 1UL << timerPort->mp_SigBit;
+    }
+
     // Open the "Connecting..." window.
     if( OpenConnectingWindow() == RETURN_OK)
     {
@@ -148,7 +168,16 @@ void __SAVE_DS__ __ASM__ HandleConnectingWindowTask(void)
         {
             winsig = 1L << ConnectingWnd->UserPort->mp_SigBit;
 
-            sig = Wait( winsig | SIGBREAKF_CTRL_C | SIGBREAKF_CTRL_E );
+            sig = Wait( winsig | SIGBREAKF_CTRL_C | SIGBREAKF_CTRL_E | timersig );
+
+            // The connect took too long: stop it, as the Abort button does.
+            if ((sig & timersig) && !timerDone && CheckIO((struct IORequest *)timerReq))
+            {
+                WaitIO((struct IORequest *)timerReq);
+                timerDone = TRUE;
+                isConnectionAborted = CONNECT_TIMED_OUT;
+                Signal(mainTask, SIGBREAKF_CTRL_C);
+            }
 
             // Handle Intuition window events
             if(sig & winsig)
@@ -159,7 +188,7 @@ void __SAVE_DS__ __ASM__ HandleConnectingWindowTask(void)
                     GT_ReplyIMsg(message);
                     if(class == IDCMP_GADGETUP) // User clicked a gadget (typically "Cancel")
                     {
-                        isConnectionAborted = 1;  // Mark connection as aborted by the user
+                        isConnectionAborted = CONNECT_ABORTED;  // by the user
                         Signal(mainTask, SIGBREAKF_CTRL_C);
                     }
                 }
@@ -170,8 +199,7 @@ void __SAVE_DS__ __ASM__ HandleConnectingWindowTask(void)
             if(sig & SIGBREAKF_CTRL_C)
             {
                 CloseConnectingWindow();
-                Signal(mainTask, SIGBREAKF_CTRL_E);
-                return;
+                break;
             }
 
             // Connection status update from parent task:
@@ -183,5 +211,18 @@ void __SAVE_DS__ __ASM__ HandleConnectingWindowTask(void)
             }
         }
     }
-    CloseConnectingWindow();
+    else
+        CloseConnectingWindow();
+    if (timerOpen)
+    {
+        if (!timerDone)
+        {
+            AbortIO((struct IORequest *)timerReq);
+            WaitIO((struct IORequest *)timerReq);
+        }
+        CloseDevice((struct IORequest *)timerReq);
+    }
+    if (timerReq)  DeleteIORequest((struct IORequest *)timerReq);
+    if (timerPort) DeleteMsgPort(timerPort);
+    Signal(mainTask, SIGBREAKF_CTRL_E);     // after the window is gone
 }

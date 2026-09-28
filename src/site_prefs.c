@@ -120,6 +120,7 @@ static const struct { size_t offset, size; } prefsFields[] =
     F(sb_left), F(sb_top), F(sb_width), F(sb_height),
     F(uploadpath), F(displaydriver), F(sb_lines), F(displayidstr),
     F(toolBarWin_left), F(toolBarWin_top), F(ansiMagic), F(ansiRGB),
+    F(redialTries), F(redialDelay), F(antiIdleMinutes), F(connectTimeout),
     F(extReserved)      /* a setting carved from it gets its own entry */
 #undef F
 };
@@ -183,7 +184,7 @@ static const UBYTE MAGIC_V4[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '4' };
 typedef char PrefsV1Layout[offsetof(struct PrefsStruct, ansiMagic) == PREFS_V1_SIZE ? 1 : -1];
 /* The 444 bytes up to the extension block, and the whole struct: a new
  * setting takes bytes of ext.reserved and leaves both unchanged. */
-typedef char PrefsV2Layout[offsetof(struct PrefsStruct, extReserved) == PREFS_V2_SIZE ? 1 : -1];
+typedef char PrefsV2Layout[offsetof(struct PrefsStruct, redialTries) == PREFS_V2_SIZE ? 1 : -1];  /* the block's first field */
 typedef char PrefsSize[sizeof(struct PrefsStruct) == PREFS_SIZE ? 1 : -1];
 
 size_t SitePrefs_Encode(const struct SiteSettings *s, UBYTE *buf, size_t max)

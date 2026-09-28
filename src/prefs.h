@@ -50,7 +50,13 @@ struct PrefsStruct
      * settings are flags bits instead. (Plain fields, not a nested struct:
      * vbcc's offsetof takes no member path, and site_prefs.c lists each
      * field by offset.) */
-    UBYTE extReserved[64];
+    UBYTE redialTries;          /* failed connects tried again; 0: none */
+    UBYTE redialDelay;          /* seconds between tries; 0: 10 */
+    UBYTE antiIdleMinutes;      /* a telnet NOP after this long without a
+                                   key sent; 0: never */
+    UBYTE connectTimeout;       /* seconds a connect may take; 0: the TCP
+                                   stack's own limit */
+    UBYTE extReserved[60];
 };
 
 #define PREFS_V1_SIZE     376

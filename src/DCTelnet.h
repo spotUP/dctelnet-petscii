@@ -24,6 +24,7 @@ enum MenuItemID
     MENU_SCROLLBACK,
     MENU_CAPTURE,
     MENU_SAVE_SCREEN,
+    MENU_CONNECTION_OPTIONS,
     MENU_ICONIFY,
     MENU_DISPLAY_SPEED_TEST,
     MENU_FINGER,
@@ -138,7 +139,9 @@ extern UWORD winTop;                // WinTop topEdge (titlebar height)
 extern struct Task *mainTask;       // An AmigaOS Task is roughly equivalent to a thread
 
 // This flag is set by the "Connecting..." window task when the user cancels the operation:
-extern BOOL isConnectionAborted;
+extern BOOL isConnectionAborted;       // CONNECT_ABORTED or CONNECT_TIMED_OUT
+#define CONNECT_ABORTED    1                // the user clicked Abort
+#define CONNECT_TIMED_OUT  2                // Settings > Connection Options timeout
 extern UWORD connectMsgType;
 extern char *connectString;
 
