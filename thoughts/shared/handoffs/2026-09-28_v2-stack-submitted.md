@@ -152,6 +152,42 @@ itself and the built-in renderer work.
    - delete `port/*`, `feature/pr-*` (local and fork) and `backup-2026-09-28-*`;
    - check each branch is merged or superseded first.
 
+## Session end (2026-09-28, late): release binaries
+
+- The owner asked whether the binaries are stripped. They are:
+  - `DCTelnet`, `DCTelnet.020` and `ibmcon.device` have no HUNK_SYMBOL or HUNK_DEBUG;
+  - only code, data, bss and relocations remain;
+  - the DCTelnet binaries use RELOC32SHORT (0x3F7), which needs a V37+ loader.
+  Checker: `thoughts/spot/v2tools/hunks.py FILE...`.
+- Shrinkler trial (4.7, `-9 -h -c`; `-c` keeps the command line):
+
+  | | Size | In an archive (gzip -9) | Start to connected, emulated A1200 |
+  |---|---|---|---|
+  | plain | 262-275 KB | about 122 KB | 1.2-1.3 s |
+  | packed | 90-91 KB | about 90 KB | 7.9-8.4 s |
+
+  The A500 was not measured: the only A500 config here runs Kickstart 1.3.
+  `ibmcon.device` must never be packed, because it is loaded as a device, not started
+  as a program.
+- Owner's decision: pack only the A1200 build.
+  - `~/Downloads/DCTelnet-PETSCII/DCTelnet-v2/DCTelnet.020` is the packed 8ab9e2e
+    68020 build (90844 bytes), identical to the file tested on the rig.
+  - `DCTelnet` (68000) stays plain (274628 bytes).
+  - Build it again with:
+    `Shrinkler -p -9 -h -c build/vbcc-68020-release/DCTelnet.68020 DCTelnet.020`.
+- Not tested: starting the packed `DCTelnet.020` from its Workbench icon. It was only
+  started from the Shell with arguments. The owner is to check it.
+- Packing is not part of any Makefile or PR. It is a manual step for the release drawer.
+
+## State at session end
+
+- Everything is submitted; nothing is left uncommitted in `~/Code/dctelnet-v2`
+  (`src/aos68k` is the local compiler config and is always modified; never commit it).
+- Open:
+  - upstream review of #15-#47 and retro32-term#1;
+  - the owner's icon start of the packed `.020`;
+  - cleanup after the merges (see Next steps).
+
 ## Other notes
 
 - `src/smakefile` has the SSH crypto objects but was never built (there is no SAS/C
