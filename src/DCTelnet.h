@@ -62,6 +62,7 @@ enum MenuItemID
     MENU_TOOLBAR,
     MENU_RETURN_CRLF,
     MENU_VT_KEYS,
+    MENU_RLOGIN,
     MENU_EDIT,
     MENU_PASTE,
     MENU_COPY_SCREEN,
@@ -102,6 +103,8 @@ extern struct Menu *mainMenuStrip;
 extern struct MsgPort *iconPort;
 extern struct NewWindow newWin;
 extern struct PrefsStruct prefs;
+// The connection carries telnet codes (IAC ...): not a Raw Connection, not rlogin.
+#define TELNET_DATA() (!(prefs.flags & (FLAG_RAW_CONNECTION | FLAG_RLOGIN)))
 extern struct PrefsStruct globalPrefs;   // global settings during an entry session
 extern ULONG sessionSettingsId;          // 0 = no entry session
 struct SiteSettings;

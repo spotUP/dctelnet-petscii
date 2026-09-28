@@ -87,6 +87,8 @@ struct PrefsStruct
 #define FLAG_PETSCII_MODE        (1UL << 15)  // BIT 15 = PETSCII emulation (C64/C128)
 #define FLAG_WINDOW_SNAPSHOT     (1UL << 16)  // BIT 16 = win_* hold a Snapshot Windows size;
                                               //          clear: the Workbench window opens 80x25
+#define FLAG_RLOGIN              (1UL << 18)  // BIT 18 = Rlogin (RFC 1282): a raw byte stream after
+                                              //          the login message, no telnet codes
 #define FLAG_VT_KEYS             (1UL << 17)  // BIT 17 = Home/End/Page/Insert send VT codes
                                               //          (ESC[1~ ...), clear: ANSI-BBS (ESC[H ...)
 
