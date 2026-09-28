@@ -1018,7 +1018,7 @@ enum
 {
     SG_SCREEN_OVR, SG_SCREEN_SUM, SG_SCREEN_CUR, SG_SCREEN_FONT, SG_SCREEN_PALETTE,
     SG_TERM_OVR, SG_TERM_SUM, SG_TERM_CUR, SG_TERM_PETSCII, SG_TERM_XEM, SG_TERM_XEMLIB, SG_TERM_DISPID,
-    SG_TERM_RAW, SG_TERM_ECHO, SG_TERM_RLOGIN,
+    SG_TERM_RAW, SG_TERM_ECHO, SG_TERM_RLOGIN, SG_TERM_CHARSET,
     SG_KEY_OVR, SG_KEY_SUM, SG_KEY_CUR, SG_KEY_BSDEL, SG_KEY_CRLF, SG_KEY_FKEYS, SG_KEY_VT,
     SG_XFER_OVR, SG_XFER_SUM, SG_XFER_CUR, SG_XFER_PROTO, SG_XFER_OPTS,
     SG_OK, SG_CANCEL,
@@ -1036,47 +1036,50 @@ struct SettingsGadgetDef
 /* Design grid of 8-pixel characters (topaz 8), scaled by ComputeX/Y: a
  * button is its label's length * 8 + 16, a checkbox 26 plus its label. */
 #define settingsWidth  616
-#define settingsHeight 202
+#define settingsHeight 218
 
 static const struct SettingsGadgetDef settingsDefs[SG_COUNT] =
 {
-    {  80,   4, 112, 13, "Screen",               PLACETEXT_LEFT,  CYCLE_KIND    },
+    { 80,   4, 112, 13, "Screen",               PLACETEXT_LEFT,  CYCLE_KIND    },
     { 196,   4, 300, 13, NULL,                   0,               TEXT_KIND     },
     { 500,   4, 112, 13, "Use Current",          PLACETEXT_IN,    BUTTON_KIND   },
-    {  80,  20,  72, 13, "Font...",              PLACETEXT_IN,    BUTTON_KIND   },
+    { 80,  20,  72, 13, "Font...",              PLACETEXT_IN,    BUTTON_KIND   },
     { 156,  20,  96, 13, "Palette...",           PLACETEXT_IN,    BUTTON_KIND   },
 
-    {  80,  42, 112, 13, "Terminal",             PLACETEXT_LEFT,  CYCLE_KIND    },
+    { 80,  42, 112, 13, "Terminal",             PLACETEXT_LEFT,  CYCLE_KIND    },
     { 196,  42, 300, 13, NULL,                   0,               TEXT_KIND     },
     { 500,  42, 112, 13, "Use Current",          PLACETEXT_IN,    BUTTON_KIND   },
-    {  80,  59,  26, 11, "PETSCII Mode",         PLACETEXT_RIGHT, CHECKBOX_KIND },
+    { 80,  59,  26, 11, "PETSCII Mode",         PLACETEXT_RIGHT, CHECKBOX_KIND },
     { 216,  59,  26, 11, "Use XEM",              PLACETEXT_RIGHT, CHECKBOX_KIND },
     { 316,  58, 136, 13, "XEM Library...",       PLACETEXT_IN,    BUTTON_KIND   },
     { 456,  58, 120, 13, "Display ID...",        PLACETEXT_IN,    BUTTON_KIND   },
-    {  80,  75,  26, 11, "Raw Connection",       PLACETEXT_RIGHT, CHECKBOX_KIND },
+    { 80,  75,  26, 11, "Raw Connection",       PLACETEXT_RIGHT, CHECKBOX_KIND },
     { 256,  75,  26, 11, "Local Echoback",       PLACETEXT_RIGHT, CHECKBOX_KIND },
     { 432,  75,  26, 11, "Rlogin",               PLACETEXT_RIGHT, CHECKBOX_KIND },
+    {  80,  91, 176, 13, "Characters",           PLACETEXT_LEFT,  CYCLE_KIND    },
 
-    {  80,  97, 112, 13, "Keyboard",             PLACETEXT_LEFT,  CYCLE_KIND    },
-    { 196,  97, 300, 13, NULL,                   0,               TEXT_KIND     },
-    { 500,  97, 112, 13, "Use Current",          PLACETEXT_IN,    BUTTON_KIND   },
-    {  80, 114,  26, 11, "BS/DEL Swap",          PLACETEXT_RIGHT, CHECKBOX_KIND },
-    { 216, 114,  26, 11, "Return = CR + LF",     PLACETEXT_RIGHT, CHECKBOX_KIND },
-    { 396, 113, 144, 13, "Function Keys...",     PLACETEXT_IN,    BUTTON_KIND   },
-    {  80, 130,  26, 11, "VT Keys",              PLACETEXT_RIGHT, CHECKBOX_KIND },
+    { 80, 113, 112, 13, "Keyboard",             PLACETEXT_LEFT,  CYCLE_KIND    },
+    { 196, 113, 300, 13, NULL,                   0,               TEXT_KIND     },
+    { 500, 113, 112, 13, "Use Current",          PLACETEXT_IN,    BUTTON_KIND   },
+    { 80, 130,  26, 11, "BS/DEL Swap",          PLACETEXT_RIGHT, CHECKBOX_KIND },
+    { 216, 130,  26, 11, "Return = CR + LF",     PLACETEXT_RIGHT, CHECKBOX_KIND },
+    { 396, 129, 144, 13, "Function Keys...",     PLACETEXT_IN,    BUTTON_KIND   },
+    { 80, 146,  26, 11, "VT Keys",              PLACETEXT_RIGHT, CHECKBOX_KIND },
 
-    {  80, 151, 112, 13, "Transfer",             PLACETEXT_LEFT,  CYCLE_KIND    },
-    { 196, 151, 300, 13, NULL,                   0,               TEXT_KIND     },
-    { 500, 151, 112, 13, "Use Current",          PLACETEXT_IN,    BUTTON_KIND   },
-    {  80, 167, 104, 13, "Protocol...",          PLACETEXT_IN,    BUTTON_KIND   },
-    { 188, 167, 168, 13, "Protocol Options...",  PLACETEXT_IN,    BUTTON_KIND   },
+    { 80, 167, 112, 13, "Transfer",             PLACETEXT_LEFT,  CYCLE_KIND    },
+    { 196, 167, 300, 13, NULL,                   0,               TEXT_KIND     },
+    { 500, 167, 112, 13, "Use Current",          PLACETEXT_IN,    BUTTON_KIND   },
+    { 80, 183, 104, 13, "Protocol...",          PLACETEXT_IN,    BUTTON_KIND   },
+    { 188, 183, 168, 13, "Protocol Options...",  PLACETEXT_IN,    BUTTON_KIND   },
 
-    {   4, 186, 100, 13, "Ok",                   PLACETEXT_IN,    BUTTON_KIND   },
-    { 512, 186, 100, 13, "Cancel",               PLACETEXT_IN,    BUTTON_KIND   },
+    { 4, 202, 100, 13, "Ok",                   PLACETEXT_IN,    BUTTON_KIND   },
+    { 512, 202, 100, 13, "Cancel",               PLACETEXT_IN,    BUTTON_KIND   },
 };
 
 // The Override cycle gadget of each group: which settings the entry uses.
 static STRPTR overrideLabels[] = { (STRPTR)"Global", (STRPTR)"This Entry", NULL };
+// The Character Set (charset.h: CHARSET_CP437, _LATIN1, _UTF8).
+static STRPTR charsetLabels[] = { (STRPTR)"IBM PC", (STRPTR)"Amiga", (STRPTR)"UTF-8", NULL };
 
 static const ULONG groupOfOverride[4]  = { SITE_GROUP_SCREEN, SITE_GROUP_TERMINAL, SITE_GROUP_KEYBOARD, SITE_GROUP_TRANSFER };
 static const UWORD overrideGadget[4]   = { SG_SCREEN_OVR, SG_TERM_OVR, SG_KEY_OVR, SG_XFER_OVR };
@@ -1119,6 +1122,8 @@ static void RefreshSettingsWindow(const struct SiteSettings *work)
     SetChecked(SG_TERM_RAW,     (shown.flags & FLAG_RAW_CONNECTION) != 0);
     SetChecked(SG_TERM_RLOGIN,  (shown.flags & FLAG_RLOGIN) != 0);
     SetChecked(SG_TERM_ECHO,    (shown.flags & FLAG_LOCAL_ECHO) != 0);
+    GT_SetGadgetAttrs(settingsGadgets[SG_TERM_CHARSET], settingsWnd, NULL,
+                      GTCY_Active, (ULONG)shown.charset, TAG_DONE);
     SetChecked(SG_KEY_BSDEL,    (shown.flags & FLAG_BS_DEL_SWAP) != 0);
     SetChecked(SG_KEY_CRLF,     (shown.flags & FLAG_RETURN_CRLF) != 0);
     SetChecked(SG_KEY_VT,       (shown.flags & FLAG_VT_KEYS) != 0);
@@ -1326,7 +1331,8 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
 
         tags[0] = TAG_DONE;
         if (d->kind == TEXT_KIND)  { tags[0] = GTTX_Border; tags[1] = TRUE; tags[2] = TAG_DONE; }
-        if (d->kind == CYCLE_KIND) { tags[0] = GTCY_Labels; tags[1] = (ULONG)overrideLabels; tags[2] = TAG_DONE; }
+        if (d->kind == CYCLE_KIND) { tags[0] = GTCY_Labels; tags[2] = TAG_DONE;
+                                     tags[1] = (ULONG)(i == SG_TERM_CHARSET ? charsetLabels : overrideLabels); }
         settingsGadgets[i] = g = CreateGadgetA(d->kind, g, &ng, (struct TagItem *)tags);
         if (!g) break;
     }
@@ -1409,6 +1415,10 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
                     break;
                 case SG_TERM_RLOGIN:
                     SetFlagFromGadget(&work, SITE_GROUP_TERMINAL, SG_TERM_RLOGIN, FLAG_RLOGIN);
+                    break;
+                case SG_TERM_CHARSET:
+                    OverrideGroup(&work, SITE_GROUP_TERMINAL);
+                    work.prefs.charset = (UBYTE)code;
                     break;
                 case SG_TERM_ECHO:
                     SetFlagFromGadget(&work, SITE_GROUP_TERMINAL, SG_TERM_ECHO, FLAG_LOCAL_ECHO);

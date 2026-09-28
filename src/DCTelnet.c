@@ -65,6 +65,7 @@ extern struct Library *CyberGfxBase;
 #include "waitfor.h"
 #include "rexxcmd.h"
 #include "rlogin.h"
+#include "charset.h"
 #include <rexx/storage.h>
 #include <rexx/rxslib.h>
 #include <proto/rexxsyslib.h>
@@ -156,6 +157,10 @@ static struct NewMenu mainMenuDesc[] =
     {    NM_ITEM, "Tool Bar",                       "4", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_TOOLBAR},
     {    NM_ITEM, "Return = CR + LF",               "5", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_RETURN_CRLF},
     {    NM_ITEM, "VT Keys",                        0,   HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_VT_KEYS},
+    {    NM_ITEM, "Character Set",                  0,   0,                           0, (APTR)MENU_CHARSET},
+    {     NM_SUB, "IBM PC (CP437)",                 0,   CHECKIT, ~1L & 7,              (APTR)MENU_CHARSET_CP437},
+    {     NM_SUB, "Amiga (ISO-8859-1)",             0,   CHECKIT, ~2L & 7,              (APTR)MENU_CHARSET_LATIN1},
+    {     NM_SUB, "UTF-8",                          0,   CHECKIT, ~4L & 7,              (APTR)MENU_CHARSET_UTF8},
     {    NM_ITEM, "Local Echoback",                 "6", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_LOCAL_ECHOBACK},
     {    NM_ITEM, "Rlogin",                         0 ,     HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_RLOGIN},
     {    NM_ITEM, "Raw Connection",                 "7", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_RAW_CONNECTION},
@@ -194,6 +199,8 @@ static void RexxClose(void);
 static ULONG RexxSig(void);
 static void RexxMessages(void);
 static void CancelConnectionJobs(void);
+static UBYTE *DisplayBytes(UBYTE *data, long *len);
+static struct Utf8Decoder utf8In;       // Character Set UTF-8: a character split between reads
 static BOOL rloginAckPending;         // rlogin: the server's NUL answer is still to come
 static void ScheduleKeepAlive(void);
 static void CaptureWrite(const UBYTE *data, long len);
@@ -1169,6 +1176,7 @@ static void RunPendingConnect(void)
     redialConnect = pendingConnect;
     if (BeginServerConnection(pendingConnect.host, pendingConnect.port) == RETURN_OK)
     {
+        Charset_Utf8Init(&utf8In);
         if (prefs.flags & FLAG_RLOGIN)          // rlogin: the login message first
         {
             char hello[160];
@@ -2004,8 +2012,13 @@ static void Receive(void)
         }
         CaptureWrite(recvBuffer, len);
         WaitForFeed(recvBuffer, len);
-        BbsWrite(recvBuffer, len);
-        if(!(prefs.flags & FLAG_DISABLE_SCROLLBACK))   AddBuf(recvBuffer, len);
+        {
+            long shown = len;
+            UBYTE *text = DisplayBytes(recvBuffer, &shown);
+
+            BbsWrite((char *)text, shown);
+            if(!(prefs.flags & FLAG_DISABLE_SCROLLBACK))   AddBuf(text, shown);
+        }
 
         for (i = 0; i < len; i++)
         {
@@ -2088,10 +2101,13 @@ static void Receive(void)
             }
             else
             {
-                BbsWrite(outBuffer, outLen);
+                long shown = outLen;
+                UBYTE *text = DisplayBytes(outBuffer, &shown);
+
+                BbsWrite((char *)text, shown);
 
                 if(!(prefs.flags & FLAG_DISABLE_SCROLLBACK))
-                    AddBuf(outBuffer, outLen);
+                    AddBuf(text, shown);
             }
         }
 
@@ -2927,6 +2943,18 @@ static BPTR OpenNewFileAsking(const char *fname)
     return Open((STRPTR)fname, MODE_NEWFILE);
 }
 
+// The BBS's text as the terminal shows it: with Character Set UTF-8 in the
+// IBM set (box drawing exact); anything else as it comes.
+static UBYTE *DisplayBytes(UBYTE *data, long *len)
+{
+    static UBYTE decoded[4096];
+
+    if (prefs.charset != CHARSET_UTF8 || PETSCII_SESSION() || *len > (long)sizeof(decoded))
+        return data;
+    *len = (long)Charset_Utf8ToCp437(&utf8In, data, (size_t)*len, decoded);
+    return decoded;
+}
+
 // DC Telnet > Capture to File: everything the BBS sends -- after the telnet
 // codes are taken out, before any translation -- goes on to a file as it
 // arrives, until the item is chosen again.
@@ -3258,6 +3286,15 @@ cwrite:        ConWrite(&key, 1);
 // (FLAG_BS_DEL_SWAP is an ASCII-only concept), the rest case-swapped.
 static void SendTypedChar(UBYTE c)
 {
+    if (c >= 0x80 && prefs.charset == CHARSET_UTF8 && !PETSCII_SESSION())
+    {
+        UBYTE utf8[2];
+
+        Charset_Latin1ToUtf8(&c, 1, utf8);      // an accented letter, as UTF-8
+        OutKey(utf8[0]);
+        OutKey(utf8[1]);
+        return;
+    }
     if (PETSCII_SESSION() && (c == DEL_CHAR || c == '\b'))
         OutKey((unsigned char)petscii_translate_key(PETSCII_KEY_DEL, 1));
     else if (PETSCII_SESSION() && c != '\r')
@@ -3590,10 +3627,13 @@ static void CopyRange(const struct ClipRange *r)
             if (writeConsoleReq->io_Error)
                 break;                          // no screen buffer (ibmcon < 1.11)
             n += Clip_RowText(cells, (UWORD)(writeConsoleReq->io_Actual / CLIP_CELL), from, to,
-                              PETSCII_SESSION(), win->RPort->Font == petsciiFontLower, text + n);
+                              !PETSCII_SESSION() ? (prefs.charset == CHARSET_LATIN1 ? CLIP_LATIN1 : CLIP_CP437)
+                              : win->RPort->Font == petsciiFontLower ? CLIP_PETSCII_LOWER : CLIP_PETSCII_UPPER,
+                              text + n);
             if (row < r->endRow)
                 text[n++] = '\n';
         }
+        n = Clip_TrimEmptyLines(text, n);
         if (!writeConsoleReq->io_Error)
             ClipboardIO(CMD_WRITE, iff, Clip_BuildFtxt(text, n, iff, max + 32), &actual, FALSE);
     }
@@ -3674,7 +3714,14 @@ static void PasteClipboard(void)
                 SendTypedChar((UBYTE)text[i]);  // C64 case and codes, as typed
         else
         {
-            size_t m = Clip_PasteBytes(text, n, (prefs.flags & FLAG_RETURN_CRLF) != 0,
+            size_t m;
+
+            if (prefs.charset == CHARSET_UTF8 && 2 * n <= CLIP_READ_MAX)
+            {
+                n = Charset_Latin1ToUtf8((UBYTE *)text, n, iff);    // iff is free now
+                memcpy(text, iff, n);
+            }
+            m = Clip_PasteBytes(text, n, (prefs.flags & FLAG_RETURN_CRLF) != 0,
                                        isConnected && TELNET_DATA(), out);
             if (isConnected)
             {
@@ -4114,6 +4161,13 @@ static void GetWindowMsg(struct Window *wwin)
 
                     case MENU_VT_KEYS:
                         UpdatePrefsFlagFromMenu(item, FLAG_VT_KEYS);
+                        break;
+
+                    case MENU_CHARSET_CP437:
+                    case MENU_CHARSET_LATIN1:
+                    case MENU_CHARSET_UTF8:
+                        prefs.charset = (UBYTE)((ULONG)GTMENUITEM_USERDATA(item) - MENU_CHARSET_CP437);
+                        Charset_Utf8Init(&utf8In);
                         break;
 
                     case MENU_PASTE:
@@ -5262,6 +5316,9 @@ void CreateAppMenus(void)
     SetNewMenuCheckFromPref(MENU_TOOLBAR,              FLAG_TOOL_BAR);
     SetNewMenuCheckFromPref(MENU_RETURN_CRLF,          FLAG_RETURN_CRLF);
     SetNewMenuCheckFromPref(MENU_VT_KEYS,              FLAG_VT_KEYS);
+    GetNewMenuItemFromID(MENU_CHARSET_CP437)->nm_Flags  = CHECKIT | (prefs.charset == CHARSET_CP437 ? CHECKED : 0);
+    GetNewMenuItemFromID(MENU_CHARSET_LATIN1)->nm_Flags = CHECKIT | (prefs.charset == CHARSET_LATIN1 ? CHECKED : 0);
+    GetNewMenuItemFromID(MENU_CHARSET_UTF8)->nm_Flags   = CHECKIT | (prefs.charset == CHARSET_UTF8 ? CHECKED : 0);
     SetNewMenuCheckFromPref(MENU_LOCAL_ECHOBACK,       FLAG_LOCAL_ECHO);
     SetNewMenuCheckFromPref(MENU_RAW_CONNECTION,       FLAG_RAW_CONNECTION);
     SetNewMenuCheckFromPref(MENU_RLOGIN,               FLAG_RLOGIN);

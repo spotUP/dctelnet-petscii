@@ -22,7 +22,8 @@
  *             Use Workbench are app-wide: an entry never changes where or in
  *             which mode DCTelnet runs)
  *   Terminal: FLAG_PETSCII_MODE, FLAG_USE_XEM_LIBRARY, displaydriver,
- *             displayidstr, FLAG_RAW_CONNECTION, FLAG_LOCAL_ECHO, FLAG_RLOGIN (+ XEM options)
+ *             displayidstr, FLAG_RAW_CONNECTION, FLAG_LOCAL_ECHO, FLAG_RLOGIN, charset
+ *             (+ XEM options)
  *   Keyboard: FLAG_BS_DEL_SWAP, FLAG_RETURN_CRLF, FLAG_VT_KEYS (+ function keys)
  *   Transfer: xferlibrary, xferinit
  * Everything else is app-wide and never comes from an entry.

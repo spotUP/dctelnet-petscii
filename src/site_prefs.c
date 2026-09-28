@@ -1,6 +1,7 @@
 /* src/site_prefs.c -- per-Address-Book-entry settings (issue #10). */
 #include <stddef.h>
 #include "site_prefs.h"
+#include "charset.h"
 
 /* Flags whose change needs the screen reopened (OpenAppScreen reads them).
  * FLAG_PETSCII_MODE is not one: the C64 display is up only during a
@@ -59,6 +60,7 @@ void SitePrefs_ApplyEntry(struct PrefsStruct *live, const struct PrefsStruct *gl
     {
         memcpy(result.displaydriver, e->displaydriver, sizeof(result.displaydriver));
         memcpy(result.displayidstr, e->displayidstr, sizeof(result.displayidstr));
+        result.charset = e->charset;
         copy_flags(&result, e, TERMINAL_GROUP_FLAGS);
     }
     if (entry->groups & SITE_GROUP_KEYBOARD)
@@ -121,7 +123,7 @@ static const struct { size_t offset, size; } prefsFields[] =
     F(sb_left), F(sb_top), F(sb_width), F(sb_height),
     F(uploadpath), F(displaydriver), F(sb_lines), F(displayidstr),
     F(toolBarWin_left), F(toolBarWin_top), F(ansiMagic), F(ansiRGB),
-    F(redialTries), F(redialDelay), F(antiIdleMinutes), F(connectTimeout),
+    F(redialTries), F(redialDelay), F(antiIdleMinutes), F(connectTimeout), F(charset),
     F(extReserved)      /* a setting carved from it gets its own entry */
 #undef F
 };
@@ -386,6 +388,8 @@ void SitePrefs_GroupSummary(ULONG group, const struct PrefsStruct *p, char *out,
         // always says "PETSCII", whatever Display ID holds.
         put(out, &len, max, ", type ");
         put(out, &len, max, (p->flags & FLAG_PETSCII_MODE) ? "PETSCII" : p->displayidstr);
+        if (p->charset == CHARSET_UTF8)        put(out, &len, max, ", UTF-8");
+        else if (p->charset == CHARSET_LATIN1) put(out, &len, max, ", Amiga characters");
         if (p->flags & FLAG_RAW_CONNECTION) put(out, &len, max, ", Raw Connection");
         if (p->flags & FLAG_RLOGIN)         put(out, &len, max, ", Rlogin");
         if (p->flags & FLAG_LOCAL_ECHO)     put(out, &len, max, ", Local Echo");

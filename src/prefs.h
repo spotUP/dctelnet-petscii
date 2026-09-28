@@ -56,7 +56,9 @@ struct PrefsStruct
                                    key sent; 0: never */
     UBYTE connectTimeout;       /* seconds a connect may take; 0: the TCP
                                    stack's own limit */
-    UBYTE extReserved[60];
+    UBYTE charset;              /* what the BBS sends: CHARSET_CP437 (0),
+                                   _LATIN1, _UTF8 (charset.h) */
+    UBYTE extReserved[59];
 };
 
 #define PREFS_V1_SIZE     376
