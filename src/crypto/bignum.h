@@ -24,8 +24,21 @@ struct BnMod                  /* a modulus, ready for Montgomery arithmetic */
     bn_limb minv;             /* -m^-1 mod 2^32 */
 };
 
-/* r[0..n) += a[0..n) * w; returns the limb carried out (n >= 1). */
+/* r[0..n) += a[0..n) * w; returns the limb carried out (n >= 1). On the
+ * Amiga a call through a pointer straight into the assembly for this CPU
+ * (set on the first call): a C wrapper cost more than a limb product. */
+#ifdef BN_ASM
+typedef bn_limb (*BnMulAddFn)(__reg("a0") bn_limb *r, __reg("a1") const bn_limb *a,
+                              __reg("d0") UWORD n, __reg("d1") bn_limb w);
+extern BnMulAddFn Bn_MulAddFn;
+#define Bn_MulAdd(r, a, n, w) Bn_MulAddFn((r), (a), (n), (w))
+#else
 bn_limb Bn_MulAdd(bn_limb *r, const bn_limb *a, UWORD n, bn_limb w);
+#endif
+
+/* t[0..2n) = x[0..n)^2: each cross product once, doubled, then the
+ * squares on the diagonal -- about half the products of x * x. */
+void Bn_Square(bn_limb *t, const bn_limb *x, UWORD n);
 
 /* The modulus from its big-endian bytes (odd, at most BN_MAX_BITS). FALSE
  * for an even or too long one. */

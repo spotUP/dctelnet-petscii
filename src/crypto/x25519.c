@@ -76,7 +76,15 @@ static void Mul(fe r, const fe a, const fe b)
     memcpy(r, t, sizeof(fe));
 }
 
-static void Sq(fe r, const fe a) { Mul(r, a, a); }
+static void Sq(fe r, const fe a)
+{
+    ULONG t[16], c;
+
+    Bn_Square(t, a, 8);
+    c = Bn_MulAdd(t, t + 8, 8, 38);                     /* low + 38 * high */
+    while (c) c = AddSmall(t, c);
+    memcpy(r, t, sizeof(fe));
+}
 
 static void MulSmall(fe r, const fe a, ULONG w)
 {

@@ -2,17 +2,39 @@
 #include "bignum.h"
 
 #ifdef BN_ASM
-/* bn_muladd.s: the same loop with mulu.w (68000) and with mulu.l (68020+). */
+/* bn_muladd.s: each loop with mulu.w (68000) and with mulu.l (68020+). */
 bn_limb Bn_MulAdd000(__reg("a0") bn_limb *r, __reg("a1") const bn_limb *a,
                      __reg("d0") UWORD n, __reg("d1") bn_limb w);
 bn_limb Bn_MulAdd020(__reg("a0") bn_limb *r, __reg("a1") const bn_limb *a,
                      __reg("d0") UWORD n, __reg("d1") bn_limb w);
+void Bn_DoubleAddSquares000(__reg("a0") bn_limb *t, __reg("a1") const bn_limb *x, __reg("d0") UWORD n);
+void Bn_DoubleAddSquares020(__reg("a0") bn_limb *t, __reg("a1") const bn_limb *x, __reg("d0") UWORD n);
 #include <exec/execbase.h>
 extern struct ExecBase *SysBase;
 
-bn_limb Bn_MulAdd(bn_limb *r, const bn_limb *a, UWORD n, bn_limb w)
+static BOOL Is020(void)
 {
-    return (SysBase->AttnFlags & AFF_68020) ? Bn_MulAdd020(r, a, n, w) : Bn_MulAdd000(r, a, n, w);
+#ifdef BN_FORCE_000                             /* tests: the 68000 loops on any CPU */
+    return FALSE;
+#else
+    return (SysBase->AttnFlags & AFF_68020) != 0;
+#endif
+}
+
+/* The first call picks the loop for this CPU, then the pointer goes to it. */
+static bn_limb MulAddFirst(__reg("a0") bn_limb *r, __reg("a1") const bn_limb *a,
+                           __reg("d0") UWORD n, __reg("d1") bn_limb w)
+{
+    Bn_MulAddFn = Is020() ? Bn_MulAdd020 : Bn_MulAdd000;
+    return Bn_MulAddFn(r, a, n, w);
+}
+
+BnMulAddFn Bn_MulAddFn = MulAddFirst;
+
+static void DoubleAddSquares(bn_limb *t, const bn_limb *x, UWORD n)
+{
+    if (Is020()) Bn_DoubleAddSquares020(t, x, n);
+    else Bn_DoubleAddSquares000(t, x, n);
 }
 #else
 /* In C without a 64-bit type: 16 x 16 bit products, as the 68000 does. */
@@ -39,6 +61,25 @@ bn_limb Bn_MulAdd(bn_limb *r, const bn_limb *a, UWORD n, bn_limb w)
         carry = hi;
     }
     return carry;
+}
+
+/* t = 2t + the squares x[i]^2 at limb 2i. */
+static void DoubleAddSquares(bn_limb *t, const bn_limb *x, UWORD n)
+{
+    UWORD i, k;
+    bn_limb c;
+
+    for (c = 0, k = 0; k < 2 * n; k++)
+    {
+        bn_limb top = t[k] >> 31;
+        t[k] = t[k] << 1 | c;
+        c = top;
+    }
+    for (i = 0; i < n; i++)
+    {
+        c = Bn_MulAdd(t + 2 * i, x + i, 1, x[i]);
+        for (k = 2 * i + 1; c && k < 2 * n; k++) { t[k] += c; c = t[k] < c; }
+    }
 }
 #endif
 
@@ -85,6 +126,36 @@ static void sub(bn_limb *x, const bn_limb *m, UWORD n)
     }
 }
 
+/* t[0..2n) = x^2 (see bignum.h). */
+void Bn_Square(bn_limb *t, const bn_limb *x, UWORD n)
+{
+    UWORD i;
+
+    memset(t, 0, 2 * n * sizeof(bn_limb));
+    for (i = 0; i + 1 < n; i++)
+        t[i + n] = Bn_MulAdd(t + 2 * i + 1, x + i + 1, (UWORD)(n - i - 1), x[i]);
+    DoubleAddSquares(t, x, n);
+}
+
+/* r = x*x*R^-1 mod m: the square, then Montgomery reduction row by row. */
+static void mont_sqr(const struct BnMod *mod, bn_limb *r, const bn_limb *x)
+{
+    static bn_limb t[2 * BN_MAX_LIMBS + 2];
+    const bn_limb *m = mod->m;
+    UWORD n = mod->n, i, k;
+
+    Bn_Square(t, x, n);
+    t[2 * n] = t[2 * n + 1] = 0;
+    for (i = 0; i < n; i++)
+    {
+        bn_limb c = Bn_MulAdd(t + i, m, n, t[i] * mod->minv);
+        for (k = i + n; c; k++) { t[k] += c; c = t[k] < c; }
+    }
+    if (t[2 * n] || geq(t + n, m, n))
+        sub(t + n, m, n);
+    memcpy(r, t + n, n * sizeof(bn_limb));
+}
+
 /* r = x*y*R^-1 mod m, operand scanning: row i adds x*y[i] into t+i, then
  * the multiple of m that clears t[i]; the result is t[n..2n]. r may be x
  * or y. */
@@ -123,13 +194,15 @@ BOOL Bn_SetMod(struct BnMod *mod, const UBYTE *bytes, size_t len)
     mod->minv = 0 - inv;
 
     /* R^2 mod m, R = 2^(32n). With b the bit length of m, 2^b mod m is
-     * 2^b - m (m's two's complement cut to b bits); doubling it to 2^(33n)
-     * and five Montgomery squarings (2^e -> 2^(2e - 32n)) give 2^(64n). */
+     * 2^b - m (m's two's complement cut to b bits); doubling it to 2^(48n)
+     * and one Montgomery squaring (2^e -> 2^(2e - 32n)) give 2^(64n). A
+     * doubling is a shift, a squaring as dear as ~1000 of them on a 68000:
+     * one squaring is the cheapest mix. */
     for (bits = 32 * n, top = mod->m[n - 1]; !(top & 0x80000000UL); top <<= 1) bits--;
     memset(mod->rr, 0, sizeof(mod->rr));
     sub(mod->rr, mod->m, n);                            /* 0 - m */
     if (bits % 32) mod->rr[n - 1] &= (1UL << (bits % 32)) - 1;
-    for (e = bits; e < 33 * n; e++)
+    for (e = bits; e < 48 * n; e++)
     {
         bn_limb carry = mod->rr[n - 1] >> 31;
         for (i = n - 1; i > 0; i--)
@@ -138,17 +211,17 @@ BOOL Bn_SetMod(struct BnMod *mod, const UBYTE *bytes, size_t len)
         if (carry || geq(mod->rr, mod->m, n))
             sub(mod->rr, mod->m, n);
     }
-    for (i = 0; i < 5; i++)
-        mont_mul(mod, mod->rr, mod->rr, mod->rr);
+    mont_sqr(mod, mod->rr, mod->rr);
     return TRUE;
 }
 
 void Bn_ModExp(const struct BnMod *mod, const UBYTE *base, const UBYTE *exp, size_t expLen, UBYTE *out)
 {
     static bn_limb x[BN_MAX_LIMBS], acc[BN_MAX_LIMBS], one[BN_MAX_LIMBS];
+    static bn_limb table[16][BN_MAX_LIMBS];            /* x^0 .. x^15, Montgomery form */
     UWORD n = mod->n;
     size_t i;
-    int bit;
+    int bit, k;
     BOOL started = FALSE;
 
     from_bytes(x, n, base, Bn_Bytes(mod));
@@ -156,17 +229,43 @@ void Bn_ModExp(const struct BnMod *mod, const UBYTE *base, const UBYTE *exp, siz
     memset(one, 0, sizeof(one));
     one[0] = 1;
     mont_mul(mod, acc, one, mod->rr);                   /* 1 * R mod m */
-    for (i = 0; i < expLen; i++)
-        for (bit = 7; bit >= 0; bit--)
-        {
-            if (started)
-                mont_mul(mod, acc, acc, acc);
-            if ((exp[i] >> bit) & 1)
+    if (expLen <= 8)
+    {
+        /* A short exponent (RSA's 65537): bit by bit, no table to build. */
+        for (i = 0; i < expLen; i++)
+            for (bit = 7; bit >= 0; bit--)
             {
-                mont_mul(mod, acc, acc, x);
-                started = TRUE;
+                if (started)
+                    mont_sqr(mod, acc, acc);
+                if ((exp[i] >> bit) & 1)
+                {
+                    mont_mul(mod, acc, acc, x);
+                    started = TRUE;
+                }
             }
-        }
+    }
+    else
+    {
+        /* A long one (Diffie-Hellman): 4 bits at a time, 4 squarings and at
+         * most one multiplication each -- a quarter of the multiplications. */
+        memcpy(table[0], acc, n * sizeof(bn_limb));
+        memcpy(table[1], x, n * sizeof(bn_limb));
+        for (k = 2; k < 16; k++)
+            mont_mul(mod, table[k], table[k - 1], x);
+        for (i = 0; i < expLen; i++)
+            for (bit = 4; bit >= 0; bit -= 4)
+            {
+                int w = (exp[i] >> bit) & 15;
+                if (started)
+                    for (k = 0; k < 4; k++)
+                        mont_sqr(mod, acc, acc);
+                if (w)
+                {
+                    mont_mul(mod, acc, acc, table[w]);
+                    started = TRUE;
+                }
+            }
+    }
     mont_mul(mod, acc, acc, one);                       /* out of Montgomery form */
     to_bytes(acc, n, out);
 }

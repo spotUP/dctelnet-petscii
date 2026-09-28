@@ -152,6 +152,24 @@ static void test_muladd(void)
     assert(memcmp(r, mulAddWant, sizeof(r)) == 0);
 }
 
+/* The squaring (half the products, doubled, plus the diagonal) equals
+ * the plain product, also with every bit set, where each carry is largest. */
+static void test_square_matches_multiply(void)
+{
+    ULONG x[9], sq[18], mul[18];
+    UWORD n, i, pass;
+
+    for (pass = 0; pass < 2; pass++)
+        for (n = 1; n <= 9; n++)
+        {
+            for (i = 0; i < n; i++) x[i] = pass ? 0xFFFFFFFFUL : 0x9E3779B9UL * (i + 1) ^ 0x7F4A7C15UL;
+            Bn_Square(sq, x, n);
+            memset(mul, 0, sizeof(mul));
+            for (i = 0; i < n; i++) mul[i + n] = Bn_MulAdd(mul + i, x, n, x[i]);
+            assert(memcmp(sq, mul, 2 * n * sizeof(ULONG)) == 0);
+        }
+}
+
 /* Moduli whose length is no multiple of 32 bits (R^2 mod m starts from a
  * partial top limb), up to 4096 bits. */
 static void test_modexp_sizes(void)
@@ -247,6 +265,7 @@ int main(void)
     test_x25519();
     test_x25519_iterated();
     test_muladd();
+    test_square_matches_multiply();
     test_modexp_sizes();
     test_group14_modexp();
     test_rsa4096_signature();

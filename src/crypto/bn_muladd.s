@@ -73,3 +73,87 @@ _Bn_MulAdd020:
         move.l  d4,d0
         movem.l (sp)+,d2-d5
         rts
+
+; t[0..2n) = 2 * t + the squares x[i]^2 at limb 2i (Bn_Square's last
+; step: the doubled cross products plus the diagonal).
+;
+; void Bn_DoubleAddSquares000(a0 t, a1 x, d0.w n)
+; void Bn_DoubleAddSquares020(a0 t, a1 x, d0.w n)
+
+        machine 68000
+
+        xdef    _Bn_DoubleAddSquares000
+        xdef    _Bn_DoubleAddSquares020
+
+_Bn_DoubleAddSquares000:
+        movem.l d2-d7/a2,-(sp)
+        move.l  a0,a2
+        move.w  d0,d7
+        add.w   d7,d7
+        subq.w  #1,d7                   ; 2n - 1
+        and.b   #$EF,ccr                ; X = 0 (bit 4)
+.dbl:   move.l  (a2),d1
+        roxl.l  #1,d1                   ; (move keeps X)
+        move.l  d1,(a2)+
+        dbra    d7,.dbl
+        moveq   #0,d6                   ; carry between limb pairs
+        subq.w  #1,d0
+.sq:    move.l  (a1)+,d1                ; ah:al
+        move.w  d1,d2
+        mulu.w  d2,d2                   ; lo = al^2
+        move.w  d1,d3
+        swap    d1
+        mulu.w  d1,d3                   ; mid = al*ah (doubled below)
+        mulu.w  d1,d1                   ; hi = ah^2
+        moveq   #0,d4
+        add.l   d3,d3                   ; mid * 2, X = bit 32
+        addx.w  d4,d4
+        swap    d4
+        add.l   d4,d1                   ; hi += that bit << 16
+        move.l  d3,d4
+        swap    d4
+        clr.w   d4                      ; mid << 16
+        clr.w   d3
+        swap    d3                      ; mid >> 16
+        add.l   d4,d2
+        addx.l  d3,d1                   ; hi:lo = x[i]^2
+        moveq   #0,d5
+        add.l   d6,d2                   ; + carry in
+        addx.l  d5,d1
+        add.l   d2,(a0)+
+        addx.l  d5,d1                   ; (hi <= 2^32 - 2: no overflow)
+        move.l  d5,d6
+        add.l   d1,(a0)+
+        addx.l  d5,d6                   ; carry out of the pair
+        dbra    d0,.sq
+        movem.l (sp)+,d2-d7/a2
+        rts
+
+        machine 68020
+
+_Bn_DoubleAddSquares020:
+        movem.l d2-d7/a2,-(sp)
+        move.l  a0,a2
+        move.w  d0,d7
+        add.w   d7,d7
+        subq.w  #1,d7
+        and.b   #$EF,ccr
+.dbl:   move.l  (a2),d1
+        roxl.l  #1,d1
+        move.l  d1,(a2)+
+        dbra    d7,.dbl
+        moveq   #0,d6
+        moveq   #0,d5
+        subq.w  #1,d0
+.sq:    move.l  (a1)+,d2
+        mulu.l  d2,d1:d2                ; d1:d2 = x[i]^2
+        add.l   d6,d2
+        addx.l  d5,d1
+        add.l   d2,(a0)+
+        addx.l  d5,d1
+        moveq   #0,d6
+        add.l   d1,(a0)+
+        addx.l  d5,d6
+        dbra    d0,.sq
+        movem.l (sp)+,d2-d7/a2
+        rts
