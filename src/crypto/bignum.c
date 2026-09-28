@@ -31,6 +31,12 @@ static bn_limb MulAddFirst(__reg("a0") bn_limb *r, __reg("a1") const bn_limb *a,
 
 BnMulAddFn Bn_MulAddFn = MulAddFirst;
 
+/* Squarings for R^2 mod m: a 68020 squares fast, a 68000 shifts cheaper. */
+static UWORD RrSquarings(void)
+{
+    return Is020() ? 5 : 1;
+}
+
 static void DoubleAddSquares(bn_limb *t, const bn_limb *x, UWORD n)
 {
     if (Is020()) Bn_DoubleAddSquares020(t, x, n);
@@ -61,6 +67,11 @@ bn_limb Bn_MulAdd(bn_limb *r, const bn_limb *a, UWORD n, bn_limb w)
         carry = hi;
     }
     return carry;
+}
+
+static UWORD RrSquarings(void)
+{
+    return 1;
 }
 
 /* t = 2t + the squares x[i]^2 at limb 2i. */
@@ -180,7 +191,7 @@ static void mont_mul(const struct BnMod *mod, bn_limb *r, const bn_limb *x, cons
 
 BOOL Bn_SetMod(struct BnMod *mod, const UBYTE *bytes, size_t len)
 {
-    UWORD n, i, bits, e;
+    UWORD n, i, bits, e, k;
     bn_limb inv = 1, top;
 
     while (len && !*bytes) { bytes++; len--; }
@@ -194,15 +205,16 @@ BOOL Bn_SetMod(struct BnMod *mod, const UBYTE *bytes, size_t len)
     mod->minv = 0 - inv;
 
     /* R^2 mod m, R = 2^(32n). With b the bit length of m, 2^b mod m is
-     * 2^b - m (m's two's complement cut to b bits); doubling it to 2^(48n)
-     * and one Montgomery squaring (2^e -> 2^(2e - 32n)) give 2^(64n). A
-     * doubling is a shift, a squaring as dear as ~1000 of them on a 68000:
-     * one squaring is the cheapest mix. */
+     * 2^b - m (m's two's complement cut to b bits); doubling it to
+     * 2^(32n + 32n/2^k) and k Montgomery squarings (2^e -> 2^(2e - 32n))
+     * give 2^(64n). A squaring costs ~1000 doublings on a 68000 (k = 1),
+     * far fewer on a 68020 (k = 5). */
     for (bits = 32 * n, top = mod->m[n - 1]; !(top & 0x80000000UL); top <<= 1) bits--;
     memset(mod->rr, 0, sizeof(mod->rr));
     sub(mod->rr, mod->m, n);                            /* 0 - m */
     if (bits % 32) mod->rr[n - 1] &= (1UL << (bits % 32)) - 1;
-    for (e = bits; e < 48 * n; e++)
+    k = RrSquarings();
+    for (e = bits; e < 32 * n + (32 * n >> k); e++)
     {
         bn_limb carry = mod->rr[n - 1] >> 31;
         for (i = n - 1; i > 0; i--)
@@ -211,7 +223,8 @@ BOOL Bn_SetMod(struct BnMod *mod, const UBYTE *bytes, size_t len)
         if (carry || geq(mod->rr, mod->m, n))
             sub(mod->rr, mod->m, n);
     }
-    mont_sqr(mod, mod->rr, mod->rr);
+    for (i = 0; i < k; i++)
+        mont_sqr(mod, mod->rr, mod->rr);
     return TRUE;
 }
 
