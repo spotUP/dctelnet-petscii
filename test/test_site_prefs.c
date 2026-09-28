@@ -208,16 +208,27 @@ static void test_a_dcs1_snapshot_loads_as_all_groups(void) {
 /* Collect the macro's segments; a wait between segments shows as '|'. */
 static void expand(const char *macro, const char *user, const char *pass, char *out) {
     const char *cursor = macro;
-    char seg[64];
+    char seg[64], waitText[32];
     BOOL wait;
     size_t n;
 
     out[0] = 0;
     while (*cursor) {
-        n = SitePrefs_NextMacroSegment(&cursor, user, pass, seg, sizeof(seg), &wait);
+        n = SitePrefs_NextMacroSegment(&cursor, user, pass, seg, sizeof(seg), &wait,
+                                       waitText, sizeof(waitText));
         strncat(out, seg, n);
         if (wait) strcat(out, "|");
+        if (waitText[0]) { strcat(out, "<"); strcat(out, waitText); strcat(out, ">"); }
     }
+}
+
+/* \w"text" waits for the BBS to send text before the rest goes out: a
+ * fixed \d wait was the only way, and a slow BBS missed the password. */
+static void test_login_macro_waits_for_text(void) {
+    char out[128];
+
+    expand("\\w\"Name:\"\\u\\r\\w\"Password: \"\\p\\r", "me", "pw", out);
+    assert(strcmp(out, "<Name:>me\r<Password: >pw\r") == 0);
 }
 
 /* A login macro types the username and password for the user: \u, \p,
@@ -437,6 +448,7 @@ static void test_a_dcs3_file_loads_after_the_struct_grew(void) {
 }
 
 int main(void) {
+    test_login_macro_waits_for_text();
     test_a_dcs3_file_loads_after_the_struct_grew();
     test_a_dcs2_file_loads_with_its_palette_converted();
     test_differing_groups_names_what_changed();
