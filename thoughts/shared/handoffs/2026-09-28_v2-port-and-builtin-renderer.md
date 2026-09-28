@@ -135,11 +135,13 @@ Other changes:
 ## Next steps (in order)
 
 1. Owner: test `DCTelnet-v2` (the tip build, 79ce5d7).
-2. Follow review comments on #15-#44 and retro32-term#1. After each merge, bring
+2. Follow review comments on #15-#46 and retro32-term#1. After each merge, bring
    v2.0-dev into the next branch.
-3. The shipped `build/package/DCTelnet/Devs/ibmcon.device` is still the 1.6 binary on
-   every branch; the fixed 1.11 builds only from `ibmcon/`. This needs the owner's
-   decision (see Found).
+3. The shipped `build/package/DCTelnet/Devs/ibmcon.device` was the 1998 1.4 binary
+   (`$VER: ibmcon.device 1.4 (Mar  9 1998)`) on every branch, not 1.6 as first written
+   here. Fixed by #46 (stacked on #30): the package now ships the 1.11 build of
+   `ibmcon/`, and `tests/` check-ibmcon fails when the two differ. #45 sends #14's last
+   commit (the rendered PETSCII fonts stay, their generator goes).
 4. Cleanup (V34): once the PRs are merged, remove the dctelnet-v2 worktree, the port/*
    branches and the backup-2026-09-28-* branches.
 
