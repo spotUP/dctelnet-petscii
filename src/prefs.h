@@ -43,9 +43,19 @@ struct PrefsStruct
      * ibmcon's unit-1 order: pen 1 white, pen 7 red). */
     ULONG ansiMagic;
     ULONG ansiRGB[16];
+    /* Appended for the settings that came after (PREFS_V2_SIZE above this).
+     * Every field is 0 for its default, so an older, shorter file loads with
+     * the defaults. A new field takes bytes from reserved: the size of the
+     * struct -- and of every settings file -- does not change again. On/off
+     * settings are flags bits instead. (Plain fields, not a nested struct:
+     * vbcc's offsetof takes no member path, and site_prefs.c lists each
+     * field by offset.) */
+    UBYTE extReserved[64];
 };
 
 #define PREFS_V1_SIZE     376
+#define PREFS_V2_SIZE     444   /* up to and with ansiRGB */
+#define PREFS_SIZE        508   /* checked in site_prefs.c */
 #define PREFS_ANSI_MAGIC  0x52474231UL    /* 'RGB1' */
 
 /*

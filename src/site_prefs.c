@@ -119,7 +119,8 @@ static const struct { size_t offset, size; } prefsFields[] =
     F(win_left), F(win_top), F(win_width), F(win_height),
     F(sb_left), F(sb_top), F(sb_width), F(sb_height),
     F(uploadpath), F(displaydriver), F(sb_lines), F(displayidstr),
-    F(toolBarWin_left), F(toolBarWin_top), F(ansiMagic), F(ansiRGB)
+    F(toolBarWin_left), F(toolBarWin_top), F(ansiMagic), F(ansiRGB),
+    F(extReserved)      /* a setting carved from it gets its own entry */
 #undef F
 };
 
@@ -176,9 +177,14 @@ BOOL SitePrefs_OnlyLookDiffers(const struct PrefsStruct *a, const struct PrefsSt
 static const UBYTE MAGIC_V1[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '1' };
 static const UBYTE MAGIC_V2[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '2' };
 static const UBYTE MAGIC_V3[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '3' };
+static const UBYTE MAGIC_V4[SITE_MAGIC_SIZE] = { 'D', 'C', 'S', '4' };
 
 /* The 376 bytes every DCTelnet before the ANSI palette block wrote. */
 typedef char PrefsV1Layout[offsetof(struct PrefsStruct, ansiMagic) == PREFS_V1_SIZE ? 1 : -1];
+/* The 444 bytes up to the extension block, and the whole struct: a new
+ * setting takes bytes of ext.reserved and leaves both unchanged. */
+typedef char PrefsV2Layout[offsetof(struct PrefsStruct, extReserved) == PREFS_V2_SIZE ? 1 : -1];
+typedef char PrefsSize[sizeof(struct PrefsStruct) == PREFS_SIZE ? 1 : -1];
 
 size_t SitePrefs_Encode(const struct SiteSettings *s, UBYTE *buf, size_t max)
 {
@@ -186,7 +192,7 @@ size_t SitePrefs_Encode(const struct SiteSettings *s, UBYTE *buf, size_t max)
 
     if (max < SITE_FILE_SIZE_MAX)
         return 0;
-    memcpy(p, MAGIC_V3, SITE_MAGIC_SIZE);            p += SITE_MAGIC_SIZE;
+    memcpy(p, MAGIC_V4, SITE_MAGIC_SIZE);            p += SITE_MAGIC_SIZE;
     memcpy(p, &s->groups, sizeof(s->groups));        p += sizeof(s->groups);
     memcpy(p, &s->prefs, sizeof(s->prefs));          p += sizeof(s->prefs);
     memcpy(p, s->fKeys, sizeof(s->fKeys));           p += sizeof(s->fKeys);
@@ -201,8 +207,10 @@ BOOL SitePrefs_Decode(struct SiteSettings *out, const UBYTE *buf, size_t len,
 
     size_t prefsSize;
 
-    if (len == SITE_FILE_SIZE_MAX && memcmp(buf, MAGIC_V3, SITE_MAGIC_SIZE) == 0)
+    if (len == SITE_FILE_SIZE_MAX && memcmp(buf, MAGIC_V4, SITE_MAGIC_SIZE) == 0)
         prefsSize = sizeof(out->prefs);
+    else if (len == SITE_FILE_SIZE_V3 && memcmp(buf, MAGIC_V3, SITE_MAGIC_SIZE) == 0)
+        prefsSize = PREFS_V2_SIZE;
     else if (len == SITE_FILE_SIZE_V2 && memcmp(buf, MAGIC_V2, SITE_MAGIC_SIZE) == 0)
         prefsSize = PREFS_V1_SIZE;
     else if (len == SITE_FILE_SIZE_V1 && memcmp(buf, MAGIC_V1, SITE_MAGIC_SIZE) == 0)

@@ -2106,6 +2106,9 @@ BOOL LoadPrefs(void)
 
     if(fh)
     {
+        // An older, shorter file leaves the fields it does not have at 0,
+        // their default (prefs.h).
+        memset(&prefs, 0, sizeof(prefs));
         if(Read(fh, &prefs, sizeof(struct PrefsStruct)) < 252) // IF OLD CONFIG FILE
         {
             /*//prefs.win_left = 0;

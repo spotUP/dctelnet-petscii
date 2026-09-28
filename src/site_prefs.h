@@ -100,7 +100,8 @@ BOOL SitePrefs_DisplayDiffers(const struct PrefsStruct *a, const struct PrefsStr
                               BOOL *reopenScreen);
 
 /* An entry's settings file, PROGDIR:Sites/<id>.prefs:
- *   'DCS3', ULONG groups, PrefsStruct, fKeys, loginMacro       (written)
+ *   'DCS4', ULONG groups, PrefsStruct, fKeys, loginMacro       (written)
+ *   'DCS3', the same with the 444-byte PrefsStruct before the extension block
  *   'DCS2', the same with the 376-byte PrefsStruct before the ANSI palette
  *   'DCS1', 376-byte PrefsStruct -- the first per-entry build's snapshot
  * Older files load with their palette converted from the RGB4 colours.
@@ -109,10 +110,12 @@ BOOL SitePrefs_DisplayDiffers(const struct PrefsStruct *a, const struct PrefsStr
 #define SITE_FILE_SIZE_V1  (SITE_MAGIC_SIZE + PREFS_V1_SIZE)
 #define SITE_FILE_SIZE_V2  (SITE_MAGIC_SIZE + sizeof(ULONG) + PREFS_V1_SIZE \
                             + SITE_FKEY_BYTES + SITE_LOGIN_MACRO_SIZE)
+#define SITE_FILE_SIZE_V3  (SITE_MAGIC_SIZE + sizeof(ULONG) + PREFS_V2_SIZE \
+                            + SITE_FKEY_BYTES + SITE_LOGIN_MACRO_SIZE)
 #define SITE_FILE_SIZE_MAX (SITE_MAGIC_SIZE + sizeof(ULONG) + sizeof(struct PrefsStruct) \
                             + SITE_FKEY_BYTES + SITE_LOGIN_MACRO_SIZE)
 
-/* Returns the bytes written (always DCS2), 0 when max is too small. */
+/* Returns the bytes written (always DCS4), 0 when max is too small. */
 size_t SitePrefs_Encode(const struct SiteSettings *s, UBYTE *buf, size_t max);
 
 /* FALSE (out untouched) unless buf is exactly one valid settings file. A DCS1

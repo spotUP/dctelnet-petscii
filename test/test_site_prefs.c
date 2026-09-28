@@ -158,7 +158,7 @@ static void test_display_differs_names_what_needs_a_reopen(void) {
     assert(SitePrefs_DisplayDiffers(&a, &b, &screen) && !screen);
 }
 
-/* An entry's settings file: 'DCS2', the group mask, the settings, the
+/* An entry's settings file: 'DCS4', the group mask, the settings, the
  * function keys and the login macro. A truncated, foreign or unknown file
  * is "no settings", never a half-read struct. */
 static void test_sidecar_round_trip_and_rejects(void) {
@@ -173,7 +173,7 @@ static void test_sidecar_round_trip_and_rejects(void) {
     strcpy(in.loginMacro, "\\u\\r\\p\\r");
     n = SitePrefs_Encode(&in, buf, sizeof(buf));
     assert(n == SITE_FILE_SIZE_MAX);
-    assert(buf[0] == 'D' && buf[1] == 'C' && buf[2] == 'S' && buf[3] == '3');
+    assert(buf[0] == 'D' && buf[1] == 'C' && buf[2] == 'S' && buf[3] == '4');
     memset(&out, 0xAA, sizeof(out));
     assert(SitePrefs_Decode(&out, buf, n, globalKeys));
     assert(memcmp(&in, &out, sizeof(in)) == 0);
@@ -411,7 +411,33 @@ static void test_a_dcs2_file_loads_with_its_palette_converted(void) {
     assert(out.prefs.ansiMagic == PREFS_ANSI_MAGIC && out.prefs.ansiRGB[1] == 0xFF0000);
 }
 
+/* Settings files from the palette build ('DCS3', the 444-byte PrefsStruct
+ * before the extension block) still load after the struct grew: a size
+ * check against the new struct rejected every one of them. */
+static void test_a_dcs3_file_loads_after_the_struct_grew(void) {
+    static struct SiteSettings out;
+    static TEXT globalKeys[SITE_FKEY_BYTES];
+    static UBYTE buf[SITE_FILE_SIZE_V3];
+    struct PrefsStruct p = make(FLAG_PETSCII_MODE, "Petscii.font", 8);
+    ULONG groups = SITE_GROUP_SCREEN;
+    UBYTE *q = buf;
+
+    p.ansiMagic = PREFS_ANSI_MAGIC;
+    p.ansiRGB[4] = 0x123456;
+    memcpy(q, "DCS3", 4);                    q += 4;
+    memcpy(q, &groups, 4);                   q += 4;
+    memcpy(q, &p, PREFS_V2_SIZE);            q += PREFS_V2_SIZE;
+    memcpy(q, "keys", 5);                    q += SITE_FKEY_BYTES;
+    memcpy(q, "macro", 6);
+    assert(SitePrefs_Decode(&out, buf, sizeof(buf), globalKeys));
+    assert(out.groups == SITE_GROUP_SCREEN && out.prefs.ansiRGB[4] == 0x123456);
+    assert(strcmp((char *)out.fKeys, "keys") == 0 && strcmp(out.loginMacro, "macro") == 0);
+    assert(out.prefs.extReserved[0] == 0);   /* the new block: defaults */
+    assert(!SitePrefs_Decode(&out, buf, sizeof(buf) - 1, globalKeys));
+}
+
 int main(void) {
+    test_a_dcs3_file_loads_after_the_struct_grew();
     test_a_dcs2_file_loads_with_its_palette_converted();
     test_differing_groups_names_what_changed();
     test_font_or_palette_change_is_a_look_change();
