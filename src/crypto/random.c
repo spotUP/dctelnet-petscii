@@ -44,3 +44,9 @@ ULONG Random_Added(void)
 {
     return added;
 }
+
+void Random_Reset(void)
+{
+    memset(pool, 0, sizeof(pool));
+    counter = added = 0;
+}

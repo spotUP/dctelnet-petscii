@@ -11,6 +11,7 @@
 
 void Random_Add(const void *data, size_t len);
 void Random_Bytes(UBYTE *out, size_t len);
-ULONG Random_Added(void);           /* bytes fed so far (enough before a key exchange?) */
+ULONG Random_Added(void);
+void Random_Reset(void);            /* an empty pool again: only for tests that replay a session */           /* bytes fed so far (enough before a key exchange?) */
 
 #endif /* RANDOM_H */

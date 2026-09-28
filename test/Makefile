@@ -3,7 +3,7 @@
 CC := cc
 CFLAGS := -std=c99 -Wall -Wextra -Werror -I../src
 
-TESTS := test_petscii_modules test_petscii_dispatch test_site_prefs test_palette test_screenfont test_progdir test_listsel test_textedit test_dsr test_iconpens test_keys test_clip test_ansiscan test_ticks test_rexx test_rlogin test_ansimusic test_booklist test_crypto
+TESTS := test_petscii_modules test_petscii_dispatch test_site_prefs test_palette test_screenfont test_progdir test_listsel test_textedit test_dsr test_iconpens test_keys test_clip test_ansiscan test_ticks test_rexx test_rlogin test_ansimusic test_booklist test_crypto test_ssh
 
 .PHONY: all clean check-encoding check-fonts check-icons
 all: $(TESTS) check-encoding check-fonts check-icons
@@ -93,3 +93,6 @@ clean:
 CRYPTO_SRC := ../src/crypto/sha256.c ../src/crypto/aes.c ../src/crypto/bignum.c ../src/crypto/rsa.c ../src/crypto/x25519.c ../src/crypto/random.c
 test_crypto: test_crypto.c crypto_vectors.h $(CRYPTO_SRC) $(wildcard ../src/crypto/*.h)
 	$(CC) $(CFLAGS) -Ishim -o $@ $(filter %.c,$^)
+
+test_ssh: test_ssh.c ../src/ssh.c ../src/ssh.h $(CRYPTO_SRC) $(wildcard ../src/crypto/*.h) $(wildcard ssh_sessions/*.bin)
+	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE -Ishim -o $@ $(filter %.c,$^)
