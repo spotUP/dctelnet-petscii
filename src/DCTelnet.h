@@ -62,6 +62,7 @@ enum MenuItemID
     MENU_TOOLBAR,
     MENU_RETURN_CRLF,
     MENU_VT_KEYS,
+    MENU_132_COLUMNS,
     MENU_CHARSET,
     MENU_CHARSET_CP437,             // CP437, LATIN1, UTF8 in this order:
     MENU_CHARSET_LATIN1,            //   minus MENU_CHARSET_CP437 is the

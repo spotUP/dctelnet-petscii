@@ -158,6 +158,7 @@ static struct NewMenu mainMenuDesc[] =
     {    NM_ITEM, "Use XEM Library",                "3", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_USE_XEM_LIBRARY},
     {    NM_ITEM, "Tool Bar",                       "4", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_TOOLBAR},
     {    NM_ITEM, "Return = CR + LF",               "5", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_RETURN_CRLF},
+    {    NM_ITEM, "132 Columns",                    0,   HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_132_COLUMNS},
     {    NM_ITEM, "VT Keys",                        0,   HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_VT_KEYS},
     {    NM_ITEM, "Character Set",                  0,   0,                           0, (APTR)MENU_CHARSET},
     {     NM_SUB, "IBM PC (CP437)",                 0,   CHECKIT, ~1L & 7,              (APTR)MENU_CHARSET_CP437},
@@ -1424,8 +1425,9 @@ static void TerminalGrid(UWORD *cols, UWORD *rows)
 // The columns BBS art is drawn for in this font: 40 in the C64 fonts, else 80.
 static UWORD ArtColumns(struct TextFont *cell)
 {
-    return (cell == petsciiFont || cell == petsciiFontLower)
-         ? SCREENFONT_PETSCII_COLUMNS : SCREENFONT_ANSI_COLUMNS;
+    if (cell == petsciiFont || cell == petsciiFontLower)
+        return SCREENFONT_PETSCII_COLUMNS;
+    return (prefs.flags & FLAG_132_COLUMNS) ? SCREENFONT_WIDE_COLUMNS : SCREENFONT_ANSI_COLUMNS;
 }
 
 /**
@@ -1459,6 +1461,30 @@ static void SizeWorkbenchWindow(UWORD cols, UWORD rows)
  *        background around it ANSI black (see OpenAppWindow). Called once the
  *        console's font is final and after every Workbench resize.
  */
+static void LimitTerminalWidth(void);
+static void TelnetSendWindowSize(void);
+
+// Options > 132 Columns: the Workbench window widens (or narrows) to the
+// width -- at most the screen's -- and the own screen's terminal is centred
+// at it; the BBS is told the grid it got (on the own screen here: no window
+// resize message comes there).
+static void ApplyTerminalWidth(void)
+{
+    UWORD cols, rows;
+
+    if (!win)
+        return;
+    if (isRunningOnWB)
+    {
+        TerminalGrid(&cols, &rows);
+        WindowLimits(win, 0, 0, scr->Width, 0);         // the new width may be wider
+        SizeWorkbenchWindow(ArtColumns(win->RPort->Font), rows);
+    }
+    LimitTerminalWidth();
+    if (isConnected && !isRunningOnWB)          // (the Workbench window's resize sends it)
+        TelnetSendWindowSize();
+}
+
 static void LimitTerminalWidth(void)
 {
     struct TextFont *cell;
@@ -4258,6 +4284,11 @@ static void GetWindowMsg(struct Window *wwin)
                     case MENU_RLOGIN:
                         UpdatePrefsFlagFromMenu(item, FLAG_RLOGIN);
                         break;
+                    case MENU_132_COLUMNS:
+                        UpdatePrefsFlagFromMenu(item, FLAG_132_COLUMNS);
+                        ApplyTerminalWidth();
+                        break;
+
                     case MENU_JUMP_SCROLL:
                         UpdatePrefsFlagFromMenu(item, FLAG_JUMP_SCROLL);
                         if(!isRunningOnWB && !(prefs.flags & FLAG_USE_XEM_LIBRARY))
@@ -5369,6 +5400,7 @@ void CreateAppMenus(void)
     SetNewMenuCheckFromPref(MENU_TOOLBAR,              FLAG_TOOL_BAR);
     SetNewMenuCheckFromPref(MENU_RETURN_CRLF,          FLAG_RETURN_CRLF);
     SetNewMenuCheckFromPref(MENU_VT_KEYS,              FLAG_VT_KEYS);
+    SetNewMenuCheckFromPref(MENU_132_COLUMNS,          FLAG_132_COLUMNS);
     GetNewMenuItemFromID(MENU_CHARSET_CP437)->nm_Flags  = CHECKIT | (prefs.charset == CHARSET_CP437 ? CHECKED : 0);
     GetNewMenuItemFromID(MENU_CHARSET_LATIN1)->nm_Flags = CHECKIT | (prefs.charset == CHARSET_LATIN1 ? CHECKED : 0);
     GetNewMenuItemFromID(MENU_CHARSET_UTF8)->nm_Flags   = CHECKIT | (prefs.charset == CHARSET_UTF8 ? CHECKED : 0);
