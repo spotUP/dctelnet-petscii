@@ -32,6 +32,8 @@
 #include "textedit.h"
 #include "ansiscan.h"
 #include "booklist.h"
+#include "iconpens.h"
+#include "screenfont.h"
 #include <intuition/sghooks.h>
 
 struct BookStruct
@@ -2442,16 +2444,11 @@ void CloseToolBarWindow(void)
     if (toolBarWin)
     {
         register struct MenuItem *item;
-         register UWORD i;
 
         ClearMenuStrip(toolBarWin);
         CloseWindow(toolBarWin);
         toolBarWin = NULL;
-
-        for(i=0; i<BUTTON_COUNT; i++)
-        {
-            if(dob[i]) { FreeDiskObject(dob[i]);  dob[i]= NULL; }
-        }
+        FreeToolIcons();
 
         item = GetMenuItemFromID(MENU_TOOL_BAR);
         if (item != NULL)
@@ -2485,6 +2482,7 @@ void OpenToolBarWindow(char setmenus)
             dob[i] = GetDiskObjectNew(buf);
             if(dob[i])
             {
+                RemapToolIcon(i);
                 if(gad) gad->NextGadget = &dob[i]->do_Gadget;
                 gad = &dob[i]->do_Gadget;
                 gad->NextGadget = 0;
@@ -2554,6 +2552,8 @@ void OpenToolBarWindow(char setmenus)
         CheckDimensions(&newWin);
 
         toolBarWin = OpenWindow(&newWin);
+        if (!toolBarWin)
+            FreeToolIcons();
         if (toolBarWin)
         {
             if(setmenus) ResetMenuStrip(toolBarWin, mainMenuStrip);

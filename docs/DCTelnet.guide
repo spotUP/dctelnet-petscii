@@ -1251,6 +1251,9 @@ Build & Toolchain:
 
 - VBCC Docker builder image by George Sokianos
   (https://github.com/walkero-gr).
+- The Workbench tool bar symbols are Lucide icons (ISC license, see
+  Docs/Lucide-LICENSE.txt).
+
 
 - Thanks to Ray Akey for his help with the file tranfer code,
   it wouldn't have worked without his help.

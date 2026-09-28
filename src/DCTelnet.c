@@ -965,7 +965,7 @@ static void SyncPetsciiDisplay(void)
 
 // The screen mode's pixel shape (DisplayInfo.Resolution), from OpenAppScreen:
 // which of topaz and Topaz Pro a font setting opens as (ScreenFont_ForMode).
-static UWORD modeResX, modeResY;
+UWORD modeResX, modeResY;      // the display mode's resolution ticks (0: unknown)
 
 // The font a setting actually opens on the current mode.
 static void EffectiveFont(struct PrefsStruct *p)
