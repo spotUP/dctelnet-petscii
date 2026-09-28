@@ -23,7 +23,7 @@
  *             which mode DCTelnet runs)
  *   Terminal: FLAG_PETSCII_MODE, FLAG_USE_XEM_LIBRARY, displaydriver,
  *             displayidstr, FLAG_RAW_CONNECTION, FLAG_LOCAL_ECHO (+ XEM options)
- *   Keyboard: FLAG_BS_DEL_SWAP, FLAG_RETURN_CRLF (+ function keys)
+ *   Keyboard: FLAG_BS_DEL_SWAP, FLAG_RETURN_CRLF, FLAG_VT_KEYS (+ function keys)
  *   Transfer: xferlibrary, xferinit
  * Everything else is app-wide and never comes from an entry.
  */

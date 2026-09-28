@@ -33,7 +33,7 @@ static void replace_keeping_geometry(struct PrefsStruct *live, const struct Pref
 }
 
 #define TERMINAL_GROUP_FLAGS  (FLAG_PETSCII_MODE | FLAG_USE_XEM_LIBRARY | FLAG_RAW_CONNECTION | FLAG_LOCAL_ECHO)
-#define KEYBOARD_GROUP_FLAGS  (FLAG_BS_DEL_SWAP | FLAG_RETURN_CRLF)
+#define KEYBOARD_GROUP_FLAGS  (FLAG_BS_DEL_SWAP | FLAG_RETURN_CRLF | FLAG_VT_KEYS)
 
 static void copy_flags(struct PrefsStruct *to, const struct PrefsStruct *from, ULONG mask)
 {
@@ -374,6 +374,11 @@ void SitePrefs_GroupSummary(ULONG group, const struct PrefsStruct *p, char *out,
         {
             if (len) put(out, &len, max, ", ");
             put(out, &len, max, "Return = CR + LF");
+        }
+        if (p->flags & FLAG_VT_KEYS)
+        {
+            if (len) put(out, &len, max, ", ");
+            put(out, &len, max, "VT Keys");
         }
         if (!len) put(out, &len, max, "Standard keys");
     }
