@@ -5,8 +5,8 @@ CFLAGS := -std=c99 -Wall -Wextra -Werror -I../src
 
 TESTS := test_petscii_modules test_petscii_dispatch test_site_prefs test_palette test_screenfont test_progdir test_listsel test_textedit test_dsr
 
-.PHONY: all clean check-encoding check-fonts
-all: $(TESTS) check-encoding check-fonts
+.PHONY: all clean check-encoding check-fonts check-icons
+all: $(TESTS) check-encoding check-fonts check-icons
 	@for t in $(TESTS); do echo "--- $$t ---"; ./$$t || exit 1; done
 
 # DCTelnet's own sources carry legacy 8-bit bytes (Amiga CSI 0x9B, Latin-1
@@ -22,6 +22,12 @@ check-encoding:
 # failed silently.
 check-fonts:
 	python3 ../tools/check_amiga_font.py ../Fonts/Petscii.font ../Fonts/PetsciiLower.font ../Fonts/TopazPro.font
+
+# The Workbench tool bar draws its icons' planar images directly: they must
+# use the 4 pens every Workbench has. The 1.6 icons were 8-colour MagicWB art
+# and drew pink and cyan on a standard palette.
+check-icons:
+	python3 ../tools/toolbar_icons.py check
 
 MODULE_SRC := ../src/petscii_screencode.c ../src/petscii_fallback.c ../src/petscii_keymap.c
 MODULE_HDR := ../src/petscii_screencode.h ../src/petscii_fallback.h ../src/petscii_keymap.h
