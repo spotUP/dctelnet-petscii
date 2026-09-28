@@ -34,7 +34,7 @@ static void replace_keeping_geometry(struct PrefsStruct *live, const struct Pref
 }
 
 #define TERMINAL_GROUP_FLAGS  (FLAG_PETSCII_MODE | FLAG_USE_XEM_LIBRARY | FLAG_RAW_CONNECTION | FLAG_LOCAL_ECHO \
-                               | FLAG_RLOGIN)
+                               | FLAG_RLOGIN | FLAG_SSH)
 #define KEYBOARD_GROUP_FLAGS  (FLAG_BS_DEL_SWAP | FLAG_RETURN_CRLF | FLAG_VT_KEYS)
 
 static void copy_flags(struct PrefsStruct *to, const struct PrefsStruct *from, ULONG mask)
@@ -393,6 +393,7 @@ void SitePrefs_GroupSummary(ULONG group, const struct PrefsStruct *p, char *out,
         else if (p->charset == CHARSET_LATIN1) put(out, &len, max, ", Amiga characters");
         if (p->flags & FLAG_RAW_CONNECTION) put(out, &len, max, ", Raw Connection");
         if (p->flags & FLAG_RLOGIN)         put(out, &len, max, ", Rlogin");
+        if (p->flags & FLAG_SSH)            put(out, &len, max, ", SSH");
         if (p->flags & FLAG_LOCAL_ECHO)     put(out, &len, max, ", Local Echo");
     }
     else if (group == SITE_GROUP_KEYBOARD)

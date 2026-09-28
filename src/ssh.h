@@ -44,15 +44,21 @@ typedef BOOL (*SshHostKeyFn)(struct Ssh *s, const UBYTE *blob, size_t len, const
  * the answer in out. */
 typedef BOOL (*SshAskFn)(struct Ssh *s, const char *prompt, BOOL echo, char *out, size_t max);
 
+/* Optional: told before each slow step of the first key exchange, which
+ * takes seconds on a 68020 and a minute on a 68000. */
+typedef void (*SshNoteFn)(struct Ssh *s, const char *text);
+
 struct Ssh
 {
     int   state;
     char  error[160];               /* why it closed ("" = the server closed normally) */
+    BOOL  serverClosed;             /* the server ended it (else DCTelnet did, and said so) */
     char  user[64], pass[64], term[32];
     UWORD cols, rows;
     BOOL  slowCpu;                  /* no group14 */
     SshHostKeyFn hostKey;
     SshAskFn ask;
+    SshNoteFn note;
     void *user_data;
     const char *kexName;            /* the key exchange agreed on */
     UWORD kexCount;                 /* key exchanges completed (more than 1: the server rekeyed) */
@@ -62,6 +68,7 @@ struct Ssh
     UWORD icLen, isLen;
     int   kex;                      /* 0 curve25519, 1 group14 */
     int   resume;                   /* the state a key exchange returns to */
+    BOOL  failing;                  /* Fail() is sending its goodbye */
     BOOL  rekeying, serviceAsked, authPassTried, authKiTried, kiPassUsed, ignoreNext;
     UBYTE xPriv[32], xPub[32];
     UBYTE dhX[32], dhE[256];
@@ -96,6 +103,7 @@ ULONG  Ssh_Receive(struct Ssh *s, const UBYTE *data, ULONG len);
 void   Ssh_Send(struct Ssh *s, const UBYTE *data, ULONG len);
 void   Ssh_WindowChange(struct Ssh *s, UWORD cols, UWORD rows);
 void   Ssh_Disconnect(struct Ssh *s);
+void   Ssh_KeepAlive(struct Ssh *s);    /* SSH_MSG_IGNORE: shows nothing, keeps the line up */
 ULONG  Ssh_TakeOutput(struct Ssh *s, UBYTE *out, ULONG max);
 /* Taking text opens the channel window again (queues a window adjust). */
 ULONG  Ssh_TakeText(struct Ssh *s, UBYTE *out, ULONG max);

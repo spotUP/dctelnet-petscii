@@ -65,6 +65,7 @@ extern struct Library *CyberGfxBase;
 #include "waitfor.h"
 #include "rexxcmd.h"
 #include "rlogin.h"
+#include "sshconn.h"
 #include "charset.h"
 #include "ansimusic.h"
 #include "sound.h"
@@ -173,6 +174,7 @@ static struct NewMenu mainMenuDesc[] =
     {    NM_ITEM, "ANSI Music",                     0,   HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_ANSI_MUSIC},
     {    NM_ITEM, "Local Echoback",                 "6", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_LOCAL_ECHOBACK},
     {    NM_ITEM, "Rlogin",                         0 ,     HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_RLOGIN},
+    {    NM_ITEM, "SSH",                            0 ,     HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_SSH},
     {    NM_ITEM, "Raw Connection",                 "7", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_RAW_CONNECTION},
     {    NM_ITEM, "Jump Scroll",                    "8", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_JUMP_SCROLL},
     {    NM_ITEM, "PETSCII Mode",                    "9", HIGHCOMP|CHECKIT|MENUTOGGLE, 0, (APTR)MENU_PETSCII_MODE},
@@ -219,6 +221,7 @@ static void CaptureWrite(const UBYTE *data, long len);
 static void CaptureStop(void);
 static BOOL SelectionAvailable(void);
 static void SendMisc(char *str, long len);
+static void TerminalSize(UWORD *columns, UWORD *lines);
 static void ReopenTerminal(void);
 static void OpenAnsiFont(void);
 static void RenewWorkbenchPens(void);
@@ -473,6 +476,12 @@ long TCPSend(const char *buf, long len)
 {
     if (prefs.antiIdleMinutes)
         ScheduleKeepAlive();            // idle counts from now (the timer catches up)
+    if (SshConn_Active())               // SSH: encrypted into the session channel
+    {
+        if (SshConn_Write((const UBYTE *)buf, len) < 0) return -1;
+        nBytesSent += len;
+        return len;
+    }
     // Some SDKs declare send() with const buf, others without; this mismatch triggers SAS/C
     // warning 104, temporarily ignored here until properly handled.
     #ifdef __SASC
@@ -732,6 +741,7 @@ static void DisConnect(char remote, char quiet)
                       spent/3600, (spent/60)%60, spent%60);
             LocalPrint(disconnectNote);
         }
+        SshConn_End(remote);            // (a closed socket gets no goodbye)
         shutdown(tcpSocket, 2);
         CloseSocket(tcpSocket);
 
@@ -1190,7 +1200,20 @@ static void RunPendingConnect(void)
     {
         Charset_Utf8Init(&utf8In);
         AnsiMusic_Init(&ansiMusic);
-        if (prefs.flags & FLAG_RLOGIN)          // rlogin: the login message first
+        if (prefs.flags & FLAG_SSH)             // SSH: the encrypted login first
+        {
+            UWORD cols, rows;
+
+            TerminalSize(&cols, &rows);
+            if (!SshConn_Start(pendingConnect.host, pendingConnect.port,
+                               pendingConnect.username, pendingConnect.password,
+                               PETSCII_SESSION() ? "PETSCII" : prefs.displayidstr, cols, rows))
+            {
+                DisConnect(FALSE, TRUE);
+                return;
+            }
+        }
+        else if (prefs.flags & FLAG_RLOGIN)     // rlogin: the login message first
         {
             char hello[160];
             size_t n = Rlogin_Handshake(pendingConnect.username, pendingConnect.password,
@@ -1271,7 +1294,12 @@ static void TimerTick(void)
     }
     if ((due & TICK_NOP) && isConnected)
     {
-        if (TELNET_DATA())
+        if (SshConn_Active())
+        {
+            SshConn_KeepAlive();            // SSH_MSG_IGNORE: nothing shows either
+            ScheduleKeepAlive();
+        }
+        else if (TELNET_DATA())
             TCPSend("\377\361", 2);           // IAC NOP: the BBS shows nothing
         else
             ScheduleKeepAlive();
@@ -2014,15 +2042,21 @@ static void Receive(void)
     LONG i;
     LONG outLen = 0;
 
-    len = recv(tcpSocket, recvBuffer, sizeof(recvBuffer), 0);
+    // SSH: the session's decrypted bytes (none yet while the protocol talks)
+    len = SshConn_Active() ? SshConn_Read(recvBuffer, sizeof(recvBuffer))
+                           : recv(tcpSocket, recvBuffer, sizeof(recvBuffer), 0);
 
     #ifdef _DEBUG_WAITSELECT
         Printf("   --> Receive() => %ld\n", len);
     #endif
 
+    if (len == SSHCONN_AGAIN)
+        return;
+
     if (len <= 0) // Connection closed or error
     {
-        DisConnect(TRUE, FALSE);
+        // (SSH: DCTelnet itself may have ended it -- a refused key, a cancelled login)
+        DisConnect(!SshConn_Active() || SshConn_ClosedByServer(), FALSE);
         return;
     }
 
@@ -2758,7 +2792,8 @@ int main(int argc, char *argv[])
                 // If the time limit expires, WaitSelect() returns 0.
                 // Reception of a user signal with no socket ready will cause WaitSelect() to stop
                 // and to return 0.
-                timeout.tv_sec = 30; timeout.tv_usec = 0;
+                // SSH bytes already decrypted: the socket will not wake us for them
+                timeout.tv_sec = SshConn_Buffered() ? 0 : 30; timeout.tv_usec = 0;
                 i = WaitSelect(tcpSocket + 1, &rd, 0, 0, &timeout, &sigmask);
 
                 #ifdef _DEBUG
@@ -2789,7 +2824,7 @@ int main(int argc, char *argv[])
                 }
             }
 
-            if(i != 0) Receive();
+            if(i != 0 || SshConn_Buffered()) Receive();
 
         } else { // app is not iconified
 
@@ -2806,7 +2841,8 @@ int main(int argc, char *argv[])
                 if (toolBarWin) sigmask |= 1L << toolBarWin->UserPort->mp_SigBit;
                 sigmask |= TimerSig() | RexxSig();
 
-                timeout.tv_sec = 30; timeout.tv_usec = 0;
+                // SSH bytes already decrypted: the socket will not wake us for them
+                timeout.tv_sec = SshConn_Buffered() ? 0 : 30; timeout.tv_usec = 0;
                 i = WaitSelect(tcpSocket + 1, &rd, 0, 0, &timeout, &sigmask);
 
                 #ifdef _DEBUG_WAITSELECT
@@ -2838,7 +2874,7 @@ int main(int argc, char *argv[])
                 if(packetWin) GetWindowMsg(packetWin);
                 if (toolBarWin) GetWindowMsg(toolBarWin);
 
-                if(i != 0)
+                if(i != 0 || SshConn_Buffered())
                 {
                     // Draw when Title bar AND LEDs are enabled :
                     if((prefs.flags & (FLAG_HIDE_TITLEBAR | FLAG_HIDE_LEDS)) == 0)
@@ -4304,6 +4340,9 @@ static void GetWindowMsg(struct Window *wwin)
                     case MENU_RLOGIN:
                         UpdatePrefsFlagFromMenu(item, FLAG_RLOGIN);
                         break;
+                    case MENU_SSH:
+                        UpdatePrefsFlagFromMenu(item, FLAG_SSH);
+                        break;
                     case MENU_132_COLUMNS:
                         UpdatePrefsFlagFromMenu(item, FLAG_132_COLUMNS);
                         ApplyTerminalWidth();
@@ -5431,6 +5470,7 @@ void CreateAppMenus(void)
     SetNewMenuCheckFromPref(MENU_LOCAL_ECHOBACK,       FLAG_LOCAL_ECHO);
     SetNewMenuCheckFromPref(MENU_RAW_CONNECTION,       FLAG_RAW_CONNECTION);
     SetNewMenuCheckFromPref(MENU_RLOGIN,               FLAG_RLOGIN);
+    SetNewMenuCheckFromPref(MENU_SSH,                  FLAG_SSH);
     SetNewMenuCheckFromPref(MENU_JUMP_SCROLL,          FLAG_JUMP_SCROLL);
     SetNewMenuCheckFromPref(MENU_PETSCII_MODE,         FLAG_PETSCII_MODE);
 

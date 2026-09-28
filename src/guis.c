@@ -997,8 +997,9 @@ return TRUE  if the user validated the changes (OK)
 /*
  * Connection > Import Address Book...: a SyncTERM phone book (syncterm.lst)
  * added to DCTelnet.Book. An entry already there (the same host and port) is
- * skipped, and so is one DCTelnet cannot connect to (SSH, modem ...); RLogin
- * and Raw entries get their own Terminal settings (Rlogin, Raw Connection).
+ * skipped, and so is one DCTelnet cannot connect to (modem, TLS ...); RLogin,
+ * Raw and SSH entries get their own Terminal settings (Rlogin, Raw
+ * Connection, SSH).
  */
 #define IMPORT_MAX (256 * 1024)
 
@@ -1069,8 +1070,9 @@ void ImportBookList(const char *path)
             memset(&entry, 0, sizeof(entry));
             entry.groups = SITE_GROUP_TERMINAL;
             entry.prefs = *GlobalSettings();
-            entry.prefs.flags &= ~(FLAG_RLOGIN | FLAG_RAW_CONNECTION);
-            entry.prefs.flags |= b.type == BBS_RLOGIN ? FLAG_RLOGIN : FLAG_RAW_CONNECTION;
+            entry.prefs.flags &= ~(FLAG_RLOGIN | FLAG_RAW_CONNECTION | FLAG_SSH);
+            entry.prefs.flags |= b.type == BBS_RLOGIN ? FLAG_RLOGIN
+                               : b.type == BBS_SSH ? FLAG_SSH : FLAG_RAW_CONNECTION;
             memcpy(entry.fKeys, fKeys, sizeof(entry.fKeys));
             if (SaveEntrySettings(maxId + 1, &entry))
                 rec.settingsId = ++maxId;
@@ -1083,7 +1085,7 @@ void ImportBookList(const char *path)
     if (old) FreeVec(old);
     InfoReq(NULL, "%ld entries added to the Address Book.\n"
                   "%ld were there already, %ld use a connection DCTelnet does not have\n"
-                  "(SSH, modem, serial).", (LONG)added, (LONG)known, (LONG)other);
+                  "(modem, serial, TLS).", (LONG)added, (LONG)known, (LONG)other);
 }
 
 static ULONG NextSettingsId(struct List *list)
@@ -1111,7 +1113,7 @@ enum
 {
     SG_SCREEN_OVR, SG_SCREEN_SUM, SG_SCREEN_CUR, SG_SCREEN_FONT, SG_SCREEN_PALETTE,
     SG_TERM_OVR, SG_TERM_SUM, SG_TERM_CUR, SG_TERM_PETSCII, SG_TERM_XEM, SG_TERM_XEMLIB, SG_TERM_DISPID,
-    SG_TERM_RAW, SG_TERM_ECHO, SG_TERM_RLOGIN, SG_TERM_CHARSET,
+    SG_TERM_RAW, SG_TERM_ECHO, SG_TERM_RLOGIN, SG_TERM_CHARSET, SG_TERM_SSH,
     SG_KEY_OVR, SG_KEY_SUM, SG_KEY_CUR, SG_KEY_BSDEL, SG_KEY_CRLF, SG_KEY_FKEYS, SG_KEY_VT,
     SG_XFER_OVR, SG_XFER_SUM, SG_XFER_CUR, SG_XFER_PROTO, SG_XFER_OPTS,
     SG_OK, SG_CANCEL,
@@ -1150,6 +1152,7 @@ static const struct SettingsGadgetDef settingsDefs[SG_COUNT] =
     { 256,  75,  26, 11, "Local Echoback",       PLACETEXT_RIGHT, CHECKBOX_KIND },
     { 432,  75,  26, 11, "Rlogin",               PLACETEXT_RIGHT, CHECKBOX_KIND },
     {  80,  91, 176, 13, "Characters",           PLACETEXT_LEFT,  CYCLE_KIND    },
+    { 432,  91,  26, 11, "SSH",                  PLACETEXT_RIGHT, CHECKBOX_KIND },
 
     { 80, 113, 112, 13, "Keyboard",             PLACETEXT_LEFT,  CYCLE_KIND    },
     { 196, 113, 300, 13, NULL,                   0,               TEXT_KIND     },
@@ -1214,6 +1217,7 @@ static void RefreshSettingsWindow(const struct SiteSettings *work)
     SetChecked(SG_TERM_XEM,     (shown.flags & FLAG_USE_XEM_LIBRARY) != 0);
     SetChecked(SG_TERM_RAW,     (shown.flags & FLAG_RAW_CONNECTION) != 0);
     SetChecked(SG_TERM_RLOGIN,  (shown.flags & FLAG_RLOGIN) != 0);
+    SetChecked(SG_TERM_SSH,     (shown.flags & FLAG_SSH) != 0);
     SetChecked(SG_TERM_ECHO,    (shown.flags & FLAG_LOCAL_ECHO) != 0);
     GT_SetGadgetAttrs(settingsGadgets[SG_TERM_CHARSET], settingsWnd, NULL,
                       GTCY_Active, (ULONG)shown.charset, TAG_DONE);
@@ -1508,6 +1512,9 @@ static BOOL EditEntrySettings(const char *entryName, struct SiteSettings *entry,
                     break;
                 case SG_TERM_RLOGIN:
                     SetFlagFromGadget(&work, SITE_GROUP_TERMINAL, SG_TERM_RLOGIN, FLAG_RLOGIN);
+                    break;
+                case SG_TERM_SSH:
+                    SetFlagFromGadget(&work, SITE_GROUP_TERMINAL, SG_TERM_SSH, FLAG_SSH);
                     break;
                 case SG_TERM_CHARSET:
                     OverrideGroup(&work, SITE_GROUP_TERMINAL);

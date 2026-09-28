@@ -74,6 +74,7 @@ enum MenuItemID
     MENU_BELL_OFF,
     MENU_ANSI_MUSIC,
     MENU_RLOGIN,
+    MENU_SSH,
     MENU_EDIT,
     MENU_COPY,
     MENU_PASTE,
@@ -115,8 +116,8 @@ extern struct Menu *mainMenuStrip;
 extern struct MsgPort *iconPort;
 extern struct NewWindow newWin;
 extern struct PrefsStruct prefs;
-// The connection carries telnet codes (IAC ...): not a Raw Connection, not rlogin.
-#define TELNET_DATA() (!(prefs.flags & (FLAG_RAW_CONNECTION | FLAG_RLOGIN)))
+// The connection carries telnet codes (IAC ...): not a Raw Connection, not rlogin, not SSH.
+#define TELNET_DATA() (!(prefs.flags & (FLAG_RAW_CONNECTION | FLAG_RLOGIN | FLAG_SSH)))
 extern struct PrefsStruct globalPrefs;   // global settings during an entry session
 extern ULONG sessionSettingsId;          // 0 = no entry session
 struct SiteSettings;

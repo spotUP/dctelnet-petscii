@@ -6,7 +6,7 @@ connection, then exit. Needs paramiko (pip install paramiko).
   python3 tools/ssh_test_server.py 42212 group14 ki &
   test/test_ssh record test/ssh_sessions/group14_keyboard_interactive.bin 42212 guest sesame
 
-usage: sshd_test.py PORT KEX(curve|group14) AUTH(password|ki) [rekey]"""
+usage: ssh_test_server.py PORT KEX(curve|group14) AUTH(password|ki) [rekey]"""
 import os, socket, sys, threading, time
 import paramiko
 

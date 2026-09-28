@@ -27,6 +27,14 @@ static char transcript[80000];
 static size_t transcriptLen;
 static char fingerprint[64];
 static int asked;
+static char notes[256];
+
+static void Note(struct Ssh *s, const char *text)
+{
+    (void)s;
+    strcat(notes, text);
+    strcat(notes, "|");
+}
 
 static BOOL HostKey(struct Ssh *s, const UBYTE *blob, size_t len, const UBYTE fp[32])
 {
@@ -120,7 +128,9 @@ static void Drive(struct Source *src, const char *user, const char *pass)
     transcriptLen = 0;
     asked = 0;
     fingerprint[0] = 0;
+    notes[0] = 0;
     Ssh_Init(&ssh, user, pass, "ansi", 80, 25, FALSE, HostKey, Ask);
+    ssh.note = Note;
     for (;;)
     {
         long n;
@@ -239,6 +249,8 @@ static void test_curve25519_password_and_a_rekey(void)
     CheckSession();
     assert(asked == 0);                          /* the stored password was enough */
     assert(ssh.kexCount == 2);                   /* the server rekeyed mid-session */
+    /* The slow steps are announced once, not again at the rekey. */
+    assert(!strcmp(notes, "Key exchange: curve25519-sha256@libssh.org|Checking the host key: RSA 2048 bits|"));
 }
 
 static void test_group14_keyboard_interactive(void)
@@ -278,6 +290,16 @@ static void test_slow_cpu_refuses_group14_only_servers(void)
     Ssh_Receive(&ssh, pkt, (ULONG)len);
     assert(ssh.state == SSH_CLOSED);
     assert(strstr(ssh.error, "curve25519"));
+    /* The server is told why (SSH_MSG_DISCONNECT, not yet encrypted). */
+    assert(!ssh.serverClosed);
+    {
+        UBYTE out[2048];
+        ULONG n = Ssh_TakeOutput(&ssh, out, sizeof(out)), i;
+        BOOL told = FALSE;
+        for (i = 0; i + 10 < n; i++)
+            if (!memcmp(out + i, ssh.error, 10)) told = TRUE;
+        assert(told);
+    }
 }
 
 static void test_fingerprint_is_openssh_format(void)

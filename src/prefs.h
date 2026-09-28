@@ -98,6 +98,7 @@ struct PrefsStruct
 #define FLAG_132_COLUMNS         (1UL << 19)  // BIT 19 = the terminal is 132 columns wide, not 80
 #define FLAG_RLOGIN              (1UL << 18)  // BIT 18 = Rlogin (RFC 1282): a raw byte stream after
                                               //          the login message, no telnet codes
+#define FLAG_SSH                 (1UL << 20)  // BIT 20 = SSH (encrypted login, sshconn.c): no telnet codes
 #define FLAG_VT_KEYS             (1UL << 17)  // BIT 17 = Home/End/Page/Insert send VT codes
                                               //          (ESC[1~ ...), clear: ANSI-BBS (ESC[H ...)
 

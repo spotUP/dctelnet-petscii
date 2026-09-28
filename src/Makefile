@@ -31,11 +31,13 @@ CC=vc
 
 TARGET     := DCTelnet
 CPU        ?= 68000
-CFLAGS     := +aos68k -warn=-1 "-dontwarn=163,166,167,168,170,307" -warnings-as-errors -cpu=$(CPU) -DCOMPILER_STRING=$(COMPILER_STRING) -DBUILD_HASH=$(BUILD_HASH) $(INCLUDES)
+CFLAGS     := +aos68k -DBN_ASM -warn=-1 "-dontwarn=163,166,167,168,170,307" -warnings-as-errors -cpu=$(CPU) -DCOMPILER_STRING=$(COMPILER_STRING) -DBUILD_HASH=$(BUILD_HASH) $(INCLUDES)
 SRCS       := DCTelnet.c connect.c guis.c Xfer.c Xem_wrapper.c requesters.c utils.c \
               petscii_screencode.c petscii_fallback.c petscii_keymap.c \
-              petscii_dispatch.c site_prefs.c palette.c screenfont.c progdir.c shipped.c listsel.c textedit.c dsr.c iconpens.c keys.c clip.c charset.c ansiscan.c ticks.c waitfor.c rexxcmd.c rlogin.c ansimusic.c sound.c booklist.c
-DEPS       := abook.h connect.h DCTelnet.h prefs.h site_prefs.h palette.h screenfont.h progdir.h shipped.h listsel.h textedit.h dsr.h iconpens.h keys.h clip.h charset.h ansiscan.h ticks.h waitfor.h rexxcmd.h rlogin.h ansimusic.h sound.h booklist.h DCTelnet-debug.h DCTelnet-protocol.h edit.h fkey.h guis.h Xfer.h Xem_wrapper.h requesters.h utils.h
+              petscii_dispatch.c site_prefs.c palette.c screenfont.c progdir.c shipped.c listsel.c textedit.c dsr.c iconpens.c keys.c clip.c charset.c ansiscan.c ticks.c waitfor.c rexxcmd.c rlogin.c ansimusic.c sound.c booklist.c \
+              ssh.c sshconn.c knownhosts.c crypto/sha256.c crypto/aes.c crypto/bignum.c crypto/rsa.c crypto/x25519.c crypto/random.c
+ASRCS      := crypto/bn_muladd.s
+DEPS       := abook.h connect.h DCTelnet.h prefs.h site_prefs.h palette.h screenfont.h progdir.h shipped.h listsel.h textedit.h dsr.h iconpens.h keys.h clip.h charset.h ansiscan.h ticks.h waitfor.h rexxcmd.h rlogin.h ansimusic.h sound.h booklist.h ssh.h sshconn.h knownhosts.h crypto/sha256.h crypto/aes.h crypto/bignum.h crypto/rsa.h crypto/x25519.h crypto/random.h DCTelnet-debug.h DCTelnet-protocol.h edit.h fkey.h guis.h Xfer.h Xem_wrapper.h requesters.h utils.h
 INSTALLDIR := ../build/installed/DCTelnet
 
 # OBJ subdir depends on DEBUG flag (use DEBUG=yes to enable)
@@ -50,7 +52,7 @@ endif
 
 # final OBJDIR depends on CPU and OBJ_SUFFIX
 OBJDIR     := ../build/vbcc-$(CPU)-$(OBJ_SUFFIX)
-OBJS       := $(SRCS:%.c=$(OBJDIR)/%.o)
+OBJS       := $(SRCS:%.c=$(OBJDIR)/%.o) $(ASRCS:%.s=$(OBJDIR)/%.o)
 TARGET_EXE := $(OBJDIR)/$(TARGET).$(CPU)
 MAKEFILE_UPTODATE=$(OBJDIR)/Makefile.uptodate
 
@@ -105,8 +107,19 @@ $(OBJDIR)/%.o: %.c $(DEPS) | $(OBJDIR)
 	$(CC) $(CFLAGS) -o $@  -c $<
 
 
+$(OBJDIR)/%.o: %.s | $(OBJDIR)
+	@echo "------------- $@ --------------------"
+	$(CC) $(CFLAGS) -o $@  -c $<
+
+
 $(OBJDIR):
 	@echo "------------- mkdir $@ --------------------"
+	$(MKDIR) $@
+
+# The SSH crypto sources build into a subdirectory of their own.
+$(OBJS): | $(OBJDIR)/crypto
+
+$(OBJDIR)/crypto: | $(OBJDIR)
 	$(MKDIR) $@
 
 

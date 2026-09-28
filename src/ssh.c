@@ -135,13 +135,37 @@ static void HashString(struct Sha256 *h, const void *data, ULONG len)
     Sha256_Add(h, data, len);
 }
 
+/* v in decimal at out. */
+static void Decimal(char *out, ULONG v)
+{
+    char d[12];
+    int n = 0;
+    do { d[n++] = (char)('0' + v % 10); v /= 10; } while (v);
+    while (n) *out++ = d[--n];
+    *out = 0;
+}
+
 /* ---- errors ---- */
 
+static void SendMsg(struct Ssh *s);
+
+/* DCTelnet ends the connection: the server is told why (RFC 4253 11.1),
+ * once the version lines are exchanged. */
 static void Fail(struct Ssh *s, const char *why)
 {
-    if (s->state == SSH_CLOSED) return;
+    if (s->state == SSH_CLOSED || s->failing) return;
     strncpy(s->error, why, sizeof(s->error) - 1);
     s->error[sizeof(s->error) - 1] = 0;
+    if (s->state != SSH_VERSION)
+    {
+        s->failing = TRUE;
+        s->msgLen = 0;
+        PutByte(s, MSG_DISCONNECT);
+        PutU32(s, 2);                       /* SSH_DISCONNECT_PROTOCOL_ERROR */
+        PutText(s, why);
+        PutText(s, "");
+        SendMsg(s);
+    }
     s->state = SSH_CLOSED;
 }
 
@@ -291,6 +315,13 @@ static void OnKexInit(struct Ssh *s, const UBYTE *payload, ULONG len)
     s->rekeying = TRUE;
     s->resume = s->haveSession ? s->state : SSH_SERVICE;
 
+    if (s->note && !s->haveSession)
+    {
+        static char text[80];
+        strcpy(text, "Key exchange: ");
+        strcat(text, s->kexName);
+        s->note(s, text);
+    }
     Start(s, MSG_KEX_INIT);
     if (!s->kex)
     {
@@ -401,6 +432,16 @@ static void OnKexReply(struct Ssh *s, const UBYTE *payload, ULONG len)
     sig = GetString(&k, &sigLen);
     if (k.bad || nameLen != strlen(HOSTKEY) || memcmp(name, HOSTKEY, nameLen))
         { Fail(s, "SSH: the host key signature is not rsa-sha2-256"); return; }
+    if (s->note && !s->haveSession)
+    {
+        static char text[64];
+        ULONG bits = nLen * 8, top = n[0];
+        while (bits && !(top & 0x80)) { bits--; top <<= 1; }
+        strcpy(text, "Checking the host key: RSA ");
+        Decimal(text + strlen(text), bits);
+        strcat(text, " bits");
+        s->note(s, text);
+    }
     Sha256(s->H, 32, fp);
     if (!Rsa_VerifySha256(n, nLen, e, eLen, sig, sigLen, fp))
         { Fail(s, "SSH: the host key signature is wrong -- this is not the server it claims to be"); return; }
@@ -613,6 +654,7 @@ static void OnMessage(struct Ssh *s, const UBYTE *payload, ULONG len)
             memcpy(s->error + sizeof(said) - 1, p, n);
             s->error[sizeof(said) - 1 + n] = 0;
         }
+        s->serverClosed = TRUE;
         s->state = SSH_CLOSED;
         return;
     case MSG_IGNORE: case MSG_DEBUG: case MSG_UNIMPLEMENTED:
@@ -629,6 +671,10 @@ static void OnMessage(struct Ssh *s, const UBYTE *payload, ULONG len)
         OnNewKeys(s);
         return;
     case MSG_SERVICE_ACCEPT:
+        /* No user name yet: asked now, not before connecting -- servers
+         * close a connection that sends no version line for 15 s or so. */
+        if (!s->user[0] && !(s->ask && s->ask(s, "User name:", TRUE, s->user, sizeof(s->user)) && s->user[0]))
+            { Fail(s, "SSH: no user name, no login"); return; }
         SendUserAuth(s, "none");
         s->state = SSH_AUTH;
         return;
@@ -691,6 +737,7 @@ static void OnMessage(struct Ssh *s, const UBYTE *payload, ULONG len)
             s->channelOpen = FALSE;
         }
         s->error[0] = 0;
+        s->serverClosed = TRUE;
         s->state = SSH_CLOSED;
         return;
     case MSG_CHANNEL_REQUEST:
@@ -834,6 +881,14 @@ void Ssh_Disconnect(struct Ssh *s)
     SendMsg(s);
     s->error[0] = 0;
     s->state = SSH_CLOSED;
+}
+
+void Ssh_KeepAlive(struct Ssh *s)
+{
+    if (s->state != SSH_OPEN || s->rekeying) return;
+    Start(s, MSG_IGNORE);
+    PutText(s, "");
+    SendMsg(s);
 }
 
 ULONG Ssh_TakeOutput(struct Ssh *s, UBYTE *out, ULONG max)
