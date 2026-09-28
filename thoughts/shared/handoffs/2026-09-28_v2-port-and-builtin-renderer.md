@@ -106,15 +106,42 @@ Other changes:
 - The old PR descriptions `thoughts/shared/prs/15_*.md` .. `39_*.md` still describe each
   port branch's feature.
 
+## Submitted to upstream (2026-09-28, evening)
+
+- Review pass (S1): findings and triage in the session scratchpad
+  (v2prs/review_findings.md); every item marked FIX is fixed in its branch. Items left as
+  they are: R1.3, R1.4, R1.9, R3.8, R4.8, and R1.5/R1.6 ("Known limits" in #16's body).
+- All 30 port branches build (vbcc 68000 + 68020, warnings as errors) and pass `tests/`.
+  The drop audit is unchanged.
+- The tip passed the rig checks RV.T1-T6 (scratchpad v2rig/results.json):
+  - E-clock WAITFOR;
+  - SSH with a server rekey;
+  - the built-in renderer's NAWS on a 1280-wide screen;
+  - DECCKM kept over ESC 7/8, which failed on the pre-fix build;
+  - blink;
+  - the own-screen backfill.
+- PRs #15-#40 were force-pushed with leases (backup branches `backup-2026-09-28-*` in
+  dctelnet-v2) and retargeted to v2.0-dev. New PRs:
+  - #41 prefs-growth;
+  - #42 ssh;
+  - #43 builtin-layers;
+  - #44 console-fixes.
+  All 30 are MERGEABLE. Bodies are in `thoughts/shared/prs/v2/`.
+- #14 is closed with a note. Its last commit (2a584f6, which drops the font generator)
+  never reached v2.0-dev; we offered to send it on its own.
+- retro32-term: bruno-frederic/retro32-term#1 (spotUP:feat/layer-aware, 2aec2db), linked
+  from #43.
+
 ## Next steps (in order)
 
-1. Owner: test `DCTelnet-v2` (entries with their own settings, SSH to the BBS on port
-   31337, Built-in full-screen and on the Workbench, a PETSCII board).
-2. Owner: decide the upstream route for the port branches (replace PRs #15-#41 or open
-   new ones against v2.0-dev), and how retro32-term's branch reaches Bruno.
-3. If the old PR stack stays open: fix B needs to go onto PR #20 there.
-4. Then cleanup (V34): the dctelnet-v2 worktree and the port branches once merged or
-   replaced.
+1. Owner: test `DCTelnet-v2` (the tip build, 79ce5d7).
+2. Follow review comments on #15-#44 and retro32-term#1. After each merge, bring
+   v2.0-dev into the next branch.
+3. The shipped `build/package/DCTelnet/Devs/ibmcon.device` is still the 1.6 binary on
+   every branch; the fixed 1.11 builds only from `ibmcon/`. This needs the owner's
+   decision (see Found).
+4. Cleanup (V34): once the PRs are merged, remove the dctelnet-v2 worktree, the port/*
+   branches and the backup-2026-09-28-* branches.
 
 ## Other notes
 

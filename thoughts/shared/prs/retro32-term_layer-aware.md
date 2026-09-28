@@ -2,11 +2,10 @@
 date: 2026-09-28
 topic: "retro32-term: draw through the window when covered, RTG, 16-pixel cells"
 tags: [retro32-term, dctelnet, builtin-renderer, pr]
-status: draft
+status: final
 ---
 
-For bruno-frederic/retro32-term. Branch `feat/layer-aware` (three commits on
-b291015). Not pushed yet: it needs a fork or push access.
+Opened as bruno-frederic/retro32-term#1 (2026-09-28); the posted body is v2/retro32-term_1_layer-aware.md.
 
 ## Summary
 
@@ -86,4 +85,4 @@ would have kept it in the slow redraw.
     background and the ANSI colours;
   - a PETSCII session shows the C64 font at 40 columns.
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+Generated with [Claude Code](https://claude.com/claude-code)
