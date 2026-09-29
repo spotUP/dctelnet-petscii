@@ -20,7 +20,7 @@ static void test_topaz_on_square_pixels_becomes_topaz_pro(void) {
     assert(picks("topaz.font", 8, 44, 44, TOPAZ_PRO_NAME, 16));   /* RTG */
     assert(picks("Topaz.font", 8, 22, 22, TOPAZ_PRO_NAME, 16));   /* case-insensitive */
     assert(picks("topaz.font", 8, 22, 44, "topaz.font", 8));      /* PAL hires */
-    assert(picks("IBM.font", 8, 44, 44, "IBM.font", 8));          /* the user's choice */
+    assert(picks("MicroKnight.font", 8, 44, 44, "MicroKnight.font", 8)); /* the user's choice */
     assert(picks("topaz.font", 8, 0, 0, "topaz.font", 8));        /* no display info */
 }
 
@@ -31,6 +31,20 @@ static void test_topaz_pro_on_tall_pixels_becomes_topaz(void) {
     assert(picks(TOPAZ_PRO_NAME, 16, 22, 44, "topaz.font", 8));   /* PAL hires */
     assert(picks(TOPAZ_PRO_NAME, 16, 44, 44, TOPAZ_PRO_NAME, 16)); /* RTG */
     assert(picks(TOPAZ_PRO_NAME, 16, 0, 0, TOPAZ_PRO_NAME, 16));   /* no display info */
+}
+
+/* The IBM font drawn for 640x256 (8x8) looked squashed on an RTG screen's
+ * square pixels (owner, 2026-09-29): there it is the VGA's 8x16 drawing,
+ * IBM.font 16, and back to 8 on PAL hires. IBM 11 is a size the user
+ * picked on purpose and stays. */
+static void test_ibm_font_on_square_pixels_is_the_8x16_drawing(void) {
+    assert(picks("IBM.font", 8, 44, 44, "IBM.font", 16));         /* RTG */
+    assert(picks("ibm.font", 8, 22, 22, "IBM.font", 16));         /* case-insensitive */
+    assert(picks("IBM.font", 8, 22, 44, "IBM.font", 8));          /* PAL hires */
+    assert(picks("IBM.font", 16, 22, 44, "IBM.font", 8));         /* back on tall pixels */
+    assert(picks("IBM.font", 16, 44, 44, "IBM.font", 16));
+    assert(picks("IBM.font", 11, 44, 44, "IBM.font", 11));        /* another size: kept */
+    assert(picks("IBM.font", 8, 0, 0, "IBM.font", 8));            /* no display info */
 }
 
 /* DCTelnet told the BBS (telnet NAWS) the outer window size: a 640 x 200
@@ -90,6 +104,7 @@ int main(void) {
     test_window_may_be_132_columns_wide();
     test_topaz_on_square_pixels_becomes_topaz_pro();
     test_topaz_pro_on_tall_pixels_becomes_topaz();
+    test_ibm_font_on_square_pixels_is_the_8x16_drawing();
     test_window_size_sent_to_the_bbs_is_the_text_area();
     printf("screenfont: all assertions passed\n");
     return 0;

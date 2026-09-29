@@ -12,29 +12,56 @@ static BOOL same_name(const char *a, const char *b)
     return *a == *b;
 }
 
+/* One face in two drawings: for the Amiga's tall pixels (PAL hires) and
+ * for square ones (RTG, AGA hires interlaced). */
+static const struct
+{
+    const char *tallName;
+    UWORD       tallSize;
+    const char *squareName;
+    UWORD       squareSize;
+} pairs[] =
+{
+    { "topaz.font", 8, TOPAZ_PRO_NAME, TOPAZ_PRO_SIZE },  /* Topaz Pro: topaz redrawn */
+    { "IBM.font",   8, "IBM.font",     16 },              /* the VGA 8x16 IBM PC font */
+};
+
 void ScreenFont_ForMode(const char *fontname, UWORD fontsize,
                         UWORD resolutionX, UWORD resolutionY, struct ScreenFontChoice *out)
 {
-    BOOL topaz = same_name(fontname, "topaz.font");
-    BOOL pro   = same_name(fontname, TOPAZ_PRO_NAME);
     BOOL known = resolutionX != 0 && resolutionY != 0;
+    int i;
 
     out->name = fontname;
     out->size = fontsize;
-    out->topazPro = pro;
-    if (!known || !(topaz || pro))
+    out->topazPro = same_name(fontname, TOPAZ_PRO_NAME);
+    if (!known)
         return;
-    if (resolutionX == resolutionY)
+    for (i = 0; i < (int)(sizeof(pairs) / sizeof(pairs[0])); i++)
     {
-        out->name = TOPAZ_PRO_NAME;
-        out->size = TOPAZ_PRO_SIZE;
-        out->topazPro = TRUE;
-    }
-    else if (pro)
-    {
-        out->name = "topaz.font";
-        out->size = 8;
-        out->topazPro = FALSE;
+        BOOL tall = same_name(fontname, pairs[i].tallName) && fontsize == pairs[i].tallSize;
+        BOOL square = same_name(fontname, pairs[i].squareName) && fontsize == pairs[i].squareSize;
+
+        /* topaz and Topaz Pro: any size is the one face */
+        if (i == 0)
+        {
+            tall = same_name(fontname, pairs[i].tallName);
+            square = same_name(fontname, pairs[i].squareName);
+        }
+        if (!tall && !square)
+            continue;
+        if (resolutionX == resolutionY)
+        {
+            out->name = pairs[i].squareName;
+            out->size = pairs[i].squareSize;
+        }
+        else
+        {
+            out->name = pairs[i].tallName;
+            out->size = pairs[i].tallSize;
+        }
+        out->topazPro = same_name(out->name, TOPAZ_PRO_NAME);
+        return;
     }
 }
 
