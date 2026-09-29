@@ -16,9 +16,14 @@ struct ScreenFontChoice
     const char *name;
     UWORD       size;
     BOOL        topazPro;       /* the bundled Topaz Pro */
+    BOOL        square;         /* a square-pixel drawing replaced the font asked for */
 };
+/* squareFits FALSE: the square-pixel drawings are twice as tall and 25 rows
+ * of them did not fit the terminal (measured once it was open), so the
+ * tall-pixel drawing opens even on square pixels. */
 void ScreenFont_ForMode(const char *fontname, UWORD fontsize,
-                        UWORD resolutionX, UWORD resolutionY, struct ScreenFontChoice *out);
+                        UWORD resolutionX, UWORD resolutionY, BOOL squareFits,
+                        struct ScreenFontChoice *out);
 
 /* The text grid a terminal window holds, as ibmcon.device measures it
  * (MeasureGrid): the drawable area -- the inner area of a GimmeZeroZero

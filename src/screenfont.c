@@ -27,7 +27,8 @@ static const struct
 };
 
 void ScreenFont_ForMode(const char *fontname, UWORD fontsize,
-                        UWORD resolutionX, UWORD resolutionY, struct ScreenFontChoice *out)
+                        UWORD resolutionX, UWORD resolutionY, BOOL squareFits,
+                        struct ScreenFontChoice *out)
 {
     BOOL known = resolutionX != 0 && resolutionY != 0;
     int i;
@@ -35,6 +36,7 @@ void ScreenFont_ForMode(const char *fontname, UWORD fontsize,
     out->name = fontname;
     out->size = fontsize;
     out->topazPro = same_name(fontname, TOPAZ_PRO_NAME);
+    out->square = FALSE;
     if (!known)
         return;
     for (i = 0; i < (int)(sizeof(pairs) / sizeof(pairs[0])); i++)
@@ -50,10 +52,11 @@ void ScreenFont_ForMode(const char *fontname, UWORD fontsize,
         }
         if (!tall && !square)
             continue;
-        if (resolutionX == resolutionY)
+        if (resolutionX == resolutionY && squareFits)
         {
             out->name = pairs[i].squareName;
             out->size = pairs[i].squareSize;
+            out->square = !square;
         }
         else
         {

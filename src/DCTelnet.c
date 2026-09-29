@@ -996,6 +996,10 @@ static void SyncPetsciiDisplay(void)
 // The screen mode's pixel shape (DisplayInfo.Resolution), from OpenAppScreen:
 // which of topaz and Topaz Pro a font setting opens as (ScreenFont_ForMode).
 UWORD modeResX, modeResY;      // the display mode's resolution ticks (0: unknown)
+// The square-pixel drawings (Topaz Pro 16, IBM 16) are twice as tall; FALSE
+// once OpenAppScreen measured that 25 of their rows do not fit the terminal.
+static BOOL squareFontFits = TRUE;
+static BOOL ansiFontSquare;    // OpenAnsiFont swapped in a square-pixel drawing
 
 // The font a setting actually opens on the current mode.
 static void EffectiveFont(struct PrefsStruct *p)
@@ -1005,7 +1009,7 @@ static void EffectiveFont(struct PrefsStruct *p)
     // (The built-in renderer keeps its 8x8 font: OpenAnsiFont.)
     if (p->State & APP_RENDERER_BUILTIN)
         return;
-    ScreenFont_ForMode((const char *)p->FontName, p->FontSize, modeResX, modeResY, &pick);
+    ScreenFont_ForMode((const char *)p->FontName, p->FontSize, modeResX, modeResY, squareFontFits, &pick);
     if (pick.name != (const char *)p->FontName)
         strlcpy((char *)p->FontName, pick.name, sizeof(p->FontName));
     p->FontSize = pick.size;
@@ -5278,6 +5282,7 @@ static void OpenAnsiFont(void)
     fontAttr.ta_Name = prefs.FontName;
     fontAttr.ta_YSize = prefs.FontSize;
     ansiFont = NULL;
+    ansiFontSquare = FALSE;
     {
         struct DisplayInfo di;
         struct ScreenFontChoice pick;
@@ -5303,7 +5308,9 @@ static void OpenAnsiFont(void)
         // the font stays as chosen (ValidateAndInitPrefs keeps it at 8).
         if (STATE_IS_NOT(APP_RENDERER_BUILTIN))
         {
-            ScreenFont_ForMode((const char *)prefs.FontName, prefs.FontSize, resX, resY, &pick);
+            ScreenFont_ForMode((const char *)prefs.FontName, prefs.FontSize, resX, resY, squareFontFits,
+                               &pick);
+            ansiFontSquare = pick.square;
             fontAttr.ta_Name  = (STRPTR)pick.name;
             fontAttr.ta_YSize = pick.size;
             if (pick.topazPro)      // bundled: in the font list once open, so OpenScreen finds it
@@ -5328,7 +5335,8 @@ static void OpenAnsiFont(void)
         struct ScreenFontChoice pick;
 
         mysprintf(fontMissing, "%s %ld", prefs.FontName, (LONG)prefs.FontSize);
-        ScreenFont_ForMode("topaz.font", 8, modeResX, modeResY, &pick);
+        ScreenFont_ForMode("topaz.font", 8, modeResX, modeResY, squareFontFits, &pick);
+        ansiFontSquare = pick.square;
         if (pick.topazPro)
             ansiFont = OpenBundledFont(TOPAZ_PRO_NAME, "PROGDIR:Fonts/" TOPAZ_PRO_NAME, TOPAZ_PRO_SIZE);
         fontAttr.ta_Name  = ansiFont ? (STRPTR)TOPAZ_PRO_NAME : (STRPTR)"topaz.font";
@@ -5342,6 +5350,7 @@ struct Screen* OpenAppScreen(void)
 {
     struct Screen *scr;
 
+    squareFontFits = TRUE;          // measured again below, on this screen
     OpenAnsiFont();
     OpenPetsciiFonts();
 
@@ -5465,6 +5474,8 @@ struct Screen* OpenAppScreen(void)
  */
 void OpenAppWindow(void)
 {
+    BOOL bbsSizeWindow = FALSE;     // the Workbench window opened at the BBS size
+
     winTop = (scr->WBorTop)+(scr->Font->ta_YSize)+1;
     newWin.Screen = scr;
     newWin.Type = PUBLICSCREEN;
@@ -5513,6 +5524,8 @@ void OpenAppWindow(void)
             // (40x25 in PETSCII Mode) of the terminal's font, on any mode.
             struct TextFont *cell = petsciiFont ? petsciiFont : ansiFont;
             BOOL bbsSize = !wbWindowBoxValid && STATE_IS_NOT(APP_WINDOW_SNAPSHOT);
+
+            bbsSizeWindow = bbsSize;
 
             win = OpenWindowTags(&newWin, WA_BackFill, (ULONG)&terminalBackFill,
                                  bbsSize ? WA_InnerWidth : TAG_IGNORE,
@@ -5630,6 +5643,27 @@ void OpenAppWindow(void)
     }
 
     SetFont(win->RPort, petsciiFont ? petsciiFont : ansiFont);
+
+    // A square-pixel drawing is twice as tall: on a short screen (640x360
+    // RTG) 25 of its rows did not fit, and BBS art positioned past the last
+    // row stacked its lines. Measured here, where the terminal's real size
+    // is known: then the tall-pixel drawing, and a BBS-size window resized
+    // to it. A window the user sized keeps its size.
+    if (ansiFontSquare && !petsciiFont && (STATE_IS(APP_FULLSCREEN) || bbsSizeWindow))
+    {
+        UWORD cols, rows;
+
+        TerminalGrid(&cols, &rows);
+        if (rows < SCREENFONT_BBS_ROWS)
+        {
+            squareFontFits = FALSE;
+            CloseFont(ansiFont);
+            OpenAnsiFont();
+            SetFont(win->RPort, ansiFont);
+            if (STATE_IS_NOT(APP_FULLSCREEN))
+                SizeWorkbenchWindow(ArtColumns(ansiFont), SCREENFONT_BBS_ROWS);
+        }
+    }
 }
 
 void CreateAppMenus(void)
