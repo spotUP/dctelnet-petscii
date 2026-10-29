@@ -3,10 +3,17 @@
 CC := cc
 CFLAGS := -std=c99 -Wall -Wextra -Werror -I../src
 
+# The SSH engine runs on the caller's stack, 4096 bytes by default on
+# Workbench (issue #58). No frame of ssh.c or crypto/ may hold the big
+# temporaries again: they live in struct Ssh. gcc only (clang has no
+# -Wstack-usage, so the check is skipped there). -O0 gives the largest frames.
+STACK_MAX := 400
+STACKCHK := $(shell $(CC) -Werror -Wstack-usage=$(STACK_MAX) -c -x c /dev/null -o /dev/null 2>/dev/null && echo -Wstack-usage=$(STACK_MAX))
+
 TESTS := test_petscii_modules test_petscii_dispatch test_prefs_file test_site_prefs test_palette test_screenfont test_progdir test_listsel test_textedit test_dsr test_iconpens test_keys test_clip test_ansiscan test_ticks test_rexx test_rlogin test_ansimusic test_booklist test_crypto test_ssh test_knownhosts
 
-.PHONY: all clean check-encoding check-fonts check-icons
-all: $(TESTS) check-encoding check-fonts check-icons
+.PHONY: all clean check-encoding check-fonts check-icons check-stack
+all: $(TESTS) check-encoding check-fonts check-icons check-stack
 	@for t in $(TESTS); do echo "--- $$t ---"; ./$$t || exit 1; done
 
 # DCTelnet's own sources carry legacy 8-bit bytes (Amiga CSI 0x9B, Latin-1
@@ -28,6 +35,11 @@ check-fonts:
 # for fixed pens and drew pink and cyan on a standard palette.
 check-icons:
 	python3 ../tools/toolbar_icons.py check
+
+check-stack:
+	@if [ -n "$(STACKCHK)" ]; then for f in ../src/ssh.c ../src/crypto/*.c; do \
+		$(CC) $(CFLAGS) $(STACKCHK) -D_DEFAULT_SOURCE -Ishim -c $$f -o /dev/null || exit 1; done; \
+	else echo "check-stack: $(CC) has no -Wstack-usage, skipped"; fi
 
 MODULE_SRC := ../src/petscii_screencode.c ../src/petscii_fallback.c ../src/petscii_keymap.c
 MODULE_HDR := ../src/petscii_screencode.h ../src/petscii_fallback.h ../src/petscii_keymap.h
