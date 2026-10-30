@@ -12,8 +12,8 @@ STACKCHK := $(shell $(CC) -Werror -Wstack-usage=$(STACK_MAX) -c -x c /dev/null -
 
 TESTS := test_petscii_modules test_petscii_dispatch test_prefs_file test_site_prefs test_palette test_screenfont test_progdir test_listsel test_textedit test_dsr test_iconpens test_keys test_clip test_ansiscan test_ticks test_rexx test_rlogin test_ansimusic test_booklist test_crypto test_ssh test_knownhosts test_term_engine
 
-.PHONY: all clean check-encoding check-fonts check-icons check-stack check-statics
-all: $(TESTS) check-encoding check-fonts check-icons check-stack check-statics
+.PHONY: all clean check-encoding check-fonts check-icons check-stack check-statics check-ibmcon
+all: $(TESTS) check-encoding check-fonts check-icons check-stack check-statics check-ibmcon
 	@for t in $(TESTS); do echo "--- $$t ---"; ./$$t || exit 1; done
 
 # Check the file are standard printable ASCII or ISO-8859
@@ -73,6 +73,15 @@ check-statics:
 			bad="$$bad $$(basename $$f):$$sym"; done; done; rm -rf $$d; \
 		if [ -n "$$bad" ]; then echo "check-statics: writable static data in the engine:$$bad"; exit 1; fi; \
 		echo "check-statics: ok"
+# The package's Devs/ibmcon.device must be the device the ibmcon/ source
+# builds: the package shipped the 1.4 binary long after the source was 1.11.
+# Needs vasm (vasmm68k_mot); skipped without it.
+check-ibmcon:
+	@if command -v vasmm68k_mot >/dev/null; then \
+		$(MAKE) -s -C ../ibmcon ibmcon.device && \
+		cmp ../ibmcon/ibmcon.device ../build/package/DCTelnet/Devs/ibmcon.device && \
+		echo "[OK] the package's ibmcon.device is the source's build"; \
+	else echo "[SKIP] check-ibmcon: no vasmm68k_mot"; fi
 
 MODULE_SRC := ../src/petscii_screencode.c ../src/petscii_fallback.c ../src/petscii_keymap.c
 MODULE_HDR := ../src/petscii_screencode.h ../src/petscii_fallback.h ../src/petscii_keymap.h
