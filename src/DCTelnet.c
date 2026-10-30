@@ -5324,6 +5324,28 @@ struct Screen* OpenAppScreen(void)
     ansiOwnPens = scr && STATE_IS(APP_FULLSCREEN) && STATE_IS(APP_RENDERER_IBMCON_DEVICE)
                && Palette_AnsiPens(AppScreenDepth(scr), ansiColourPens);
 
+    // The screen shares its free pens (SA_SharePens): the terminal's ANSI
+    // pens and the AGA pointer pens 16-19 are ours, so that no ObtainBestPen()
+    // (the tool bar's icons) takes one and recolours it. They go with the
+    // screen. Without ANSI pens of their own (16 colours, the builtin renderer)
+    // the terminal's colours sit on pens 0-15 itself: every pen of a screen up
+    // to 16 colours, pens 0-19 above. The tool bar then finds its colours among
+    // the pens the screen holds (FindColor) instead of recolouring one.
+    if (scr && STATE_IS(APP_FULLSCREEN) && GfxBase->LibNode.lib_Version >= 39)
+    {
+        UWORD i, depth = AppScreenDepth(scr);
+        UWORD last = depth >= 5 ? 20 : (UWORD)(1 << depth);
+
+        if (ansiOwnPens)
+            for (i = 0; i < 16; i++)
+                ObtainPen(scr->ViewPort.ColorMap, ansiColourPens[i], 0, 0, 0, PEN_EXCLUSIVE | PEN_NO_SETCOLOR);
+        else
+            for (i = 0; i < 16 && i < last; i++)
+                ObtainPen(scr->ViewPort.ColorMap, i, 0, 0, 0, PEN_EXCLUSIVE | PEN_NO_SETCOLOR);
+        for (i = 16; i < last; i++)
+            ObtainPen(scr->ViewPort.ColorMap, i, 0, 0, 0, PEN_EXCLUSIVE | PEN_NO_SETCOLOR);
+    }
+
     // Border blank (V39, ECS/AGA): the overscan border shows colour 0, which
     // on 32+ colours is the UI's grey pen 0 -- keep it black like the terminal.
     if (scr && STATE_IS(APP_FULLSCREEN) && GfxBase->LibNode.lib_Version >= 39)
