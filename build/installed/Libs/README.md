@@ -8,6 +8,7 @@ From a Workbench 2.1+ installation:
 
 From the DCtelnet binary package:
 - reqtools.library
+- ssh.library (only for SSH connections)
 - xemvt340.library
 - xprftp.library
 - xprzmodem.library
