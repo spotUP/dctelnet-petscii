@@ -1695,7 +1695,7 @@ static UWORD LegacyPen(UWORD ibmconIndex)
 }
 
 // Load target's palette onto the screen: the ANSI pens (in ANSI order, 8 bits
-// a gun) on 32+ colours, pens 0-15 otherwise.
+// a gun) on 32+ colours and with the built-in renderer on 16, pens 0-15 otherwise.
 static void LoadAnsiPalette(struct PrefsStruct *target)
 {
     if (STATE_IS_NOT(APP_FULLSCREEN))
@@ -1713,6 +1713,15 @@ static void LoadAnsiPalette(struct PrefsStruct *target)
             SetRGB32(&scr->ViewPort, ansiColourPens[i], ((c >> 16) & 0xFF) * 0x01010101UL,
                      ((c >> 8) & 0xFF) * 0x01010101UL, (c & 0xFF) * 0x01010101UL);
         }
+    }
+    else if (ansiOwnPens)
+    {
+        UWORD i, colours[16];       // 16 colours, the built-in renderer: the same pen table
+
+        Palette_Get(target, colours);
+        for (i = 0; i < 16; i++)
+            SetRGB4(&scr->ViewPort, ansiColourPens[i], colours[i] >> 8 & 0xF, colours[i] >> 4 & 0xF,
+                    colours[i] & 0xF);
     }
     else
         LoadRGB4(&scr->ViewPort, Prefs_Palette(target), 16);
@@ -3920,7 +3929,8 @@ static void PasteClipboard(void)
  *        ANSI colours on pens 0-15 in ANSI order (built-in, XEM), in ibmcon's
  *        order (console.device, ibmcon), or on pens of their own with
  *        Intuition's UI pens (ibmcon and the built-in renderer with 32+
- *        colours). Intuition applies it
+ *        colours; the built-in renderer with 16, where the colours change
+ *        places). Intuition applies it
  *        only when the screen opens: a renderer of another layout needs a new
  *        screen -- console.device after ibmcon on 256 colours drew on the
  *        UI's grey pen 0.
@@ -3929,10 +3939,10 @@ static int ScreenPenLayout(ULONG renderer)
 {
     UBYTE pens[16];
 
-    if (renderer & (APP_RENDERER_BUILTIN | APP_RENDERER_XEM_LIB))
-        return 0;
     if (Palette_OwnPens(renderer, prefs.DisplayDepth, pens))
         return 2;
+    if (renderer & (APP_RENDERER_BUILTIN | APP_RENDERER_XEM_LIB))
+        return 0;
     return 1;
 }
 
@@ -5442,7 +5452,7 @@ struct Screen* OpenAppScreen(void)
 
         for (i = 0; i < 16; i++)
             ObtainPen(scr->ViewPort.ColorMap, ansiColourPens[i], 0, 0, 0, PEN_EXCLUSIVE | PEN_NO_SETCOLOR);
-        for (i = 16; i < 20; i++)
+        for (i = 16; i < 20 && AppScreenDepth(scr) > 4; i++)
             ObtainPen(scr->ViewPort.ColorMap, i, 0, 0, 0, PEN_EXCLUSIVE | PEN_NO_SETCOLOR);
     }
 
