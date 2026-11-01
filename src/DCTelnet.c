@@ -440,6 +440,7 @@ static void ConWrite(char *data, long len)
         else if (route == ROUTE_CONSOLE || route == ROUTE_IBMCON)
         {
             #ifdef _DEBUG
+                dbgConWriteCount++;
                 if (!writeConsoleReq) RecoveryAlert(
                                        "Error writing to console: console device is unavailable.");
             #endif
@@ -3134,6 +3135,9 @@ static UBYTE *DisplayBytes(struct Utf8Decoder *d, UBYTE *data, long *len)
     if (prefs.Charset != CHARSET_UTF8 || PETSCII_SESSION() || *len > DISPLAY_BYTES_MAX
      || Vt_EngineDecodesUtf8(&prefs))       // the engine reads the UTF-8 itself
         return data;
+#ifdef _DEBUG
+    dbgUtf8Conv++;
+#endif
     *len = (long)Charset_Utf8ToCp437(d, data, (size_t)*len, decoded);
     return decoded;
 }
@@ -4014,6 +4018,10 @@ static void GetWindowMsg(struct Window *wwin)
             if (wwin == win)
             {
                 int mbutton = MouseButtonOf(code);
+#ifdef _DEBUG
+                dbgMouseEvents++; dbgMouseX = mouseX; dbgMouseY = mouseY;
+                if (mbutton >= 0 && VtMouseOwned((qual & (IEQUALIFIER_LSHIFT | IEQUALIFIER_RSHIFT)) != 0)) dbgMouseOwned++;
+#endif
 
                 // MA3-4/5: a program that asked for the mouse gets it (Shift keeps selecting)
                 if (mbutton >= 0 && VtMouseOwned((qual & (IEQUALIFIER_LSHIFT | IEQUALIFIER_RSHIFT)) != 0))
@@ -4021,6 +4029,9 @@ static void GetWindowMsg(struct Window *wwin)
                     UWORD row, col;
 
                     SelectionCell(mouseX, mouseY, &row, &col);
+#ifdef _DEBUG
+                    dbgMouseCol = col; dbgMouseRow = row;
+#endif
                     VtMouseButton(mbutton, (code & IECODE_UP_PREFIX) == 0, col - 1, row - 1, QualifierToVtMods(qual));
                 }
                 else if (code == SELECTDOWN)

@@ -60,6 +60,9 @@ static int VtScrollbackCap(void)
 static struct { ULONG rgb; LONG pen; } vtTc[VT_TC_MAX];
 static int vtTcN, vtTcLast;
 static BOOL vtTrueColour;
+#ifdef _DEBUG
+static LONG dbgTcCalls, dbgTcLastPen = 12345;   /* MA2-9: ObtainBestPen calls and its last answer */
+#endif
 
 /* The pen to draw colour c with. */
 static UBYTE VtPenFor(vt_color c)
@@ -86,6 +89,10 @@ static UBYTE VtPenFor(vt_color c)
                         ((rgb >> 8) & 0xFF) * 0x01010101UL,
                         (rgb & 0xFF) * 0x01010101UL,
                         OBP_Precision, PRECISION_EXACT, OBP_FailIfBad, TRUE, TAG_END);
+#ifdef _DEBUG
+    dbgTcCalls++;
+    dbgTcLastPen = pen;
+#endif
     if (pen < 0)
         return Vt_PenFor(c, prefs.AnsiColors);
     vtTc[vtTcN].rgb = rgb;
@@ -99,6 +106,10 @@ static UBYTE VtPenFor(vt_color c)
 static void VtDraw(void *user, int x0, int y0, int x1, int y1)
 {
     int x, y, n;
+#ifdef _DEBUG
+    if (vtScrollOff > 0)
+        dbgScrollDraws++;           /* sentinel MA4-5: a scrollback view was drawn */
+#endif
     /* vt_new() draws its blank screen before it returns the terminal:
      * term_init_area() has cleared the area already. */
     if (!vtTerm)
@@ -239,6 +250,9 @@ static void VtReply(void *user, const vt_u8 *buf, long len)
     BOOL held = vtLayersHeld;
 
     VtLayersUnlock();
+#ifdef _DEBUG
+    dbgReplyBytes += len;
+#endif
     send_data((const UBYTE *)buf, len);
     if (held)
         VtLayersLock();
@@ -291,6 +305,10 @@ static void VtSetTitle(const char *utf8)
     if (!win || strcmp(text, vtTitleShown) == 0)
         return;
     strcpy(vtTitleShown, text);
+#ifdef _DEBUG
+    if (utf8[0])                    /* the restore to DCTelnet's own title must not overwrite it */
+        strncpy((char *)dbgTitle, text, sizeof(dbgTitle) - 1);     /* MA3-2: the bytes the window got */
+#endif
     screenTitle = Vt_ScreenTitleFor(win->Flags, WFLG_BACKDROP, vtTitleShown);
     keepScreenTitle = 0xFFFFFFFFUL;         /* -1: the screen title stays */
     SetWindowTitles(win, (UBYTE *)vtTitleShown,
@@ -357,6 +375,9 @@ static void VtMouseButton(int button, BOOL down, int x, int y, int mods)
     if (!vtTerm)
         return;
     n = Vt_MouseButton(&vtMouse, vtTerm, button, down, x, y, mods, out);
+#ifdef _DEBUG
+    if (n > 0) dbgMouseOut++;
+#endif
     if (n > 0)
         VtReply(NULL, out, n);
 }
@@ -431,8 +452,165 @@ static void VtRedraw(void)
     VtLayersUnlock();
 }
 
+#ifdef _DEBUG
+/* MA1-10 / MA-rig: the sentinels and the engine's grid to a file (name), as the screen shows it
+ * (scrollback offset applied): counters, window metrics, the title bytes, CRC32 over ch lo, ch hi,
+ * fg, bg, attr of the live grid (the same sum as test_ma1_9), the pens of the non-blank cells,
+ * then the displayed rows as text. once: the VtClose dump runs a single time. */
+/* cybergraphics.library ReadRGBPixel (LVO -108), declared here: the vbcc NDK has no cybergraphics headers */
+static ULONG DbgReadRGBPixel(__reg("a6") struct Library *, __reg("a1") struct RastPort *, __reg("d0") UWORD, __reg("d1") UWORD) = "\tjsr\t-108(a6)";
+
+static void VtDumpGrid(const char *name, BOOL once)
+{
+    struct Library *cgx = NULL;
+    BPTR f;
+    ULONG crc = 0xFFFFFFFFUL;
+    int x, y, n, k, j, np = 0;
+
+    static BOOL dumped = FALSE;
+
+    if (once) {
+        if (dumped || (!vtTerm && !dbgConWriteCount && !dbgVtWriteCount))
+            return;                 /* already written, or the early close before any write */
+        dumped = TRUE;
+    }
+    f = Open((STRPTR)name, MODE_NEWFILE);
+    if (once)
+        PutStr(f ? (STRPTR)"vtgrid: dump file open\n" : (STRPTR)"vtgrid: Open dump FAILED\n");
+    if (!f)
+        return;
+    if (!vtTerm) {
+        FPrintf(f, (STRPTR)"vtwrite %ld\nconwrite %ld\nvt none\n", (LONG)dbgVtWriteCount,
+                (LONG)dbgConWriteCount);
+        Close(f);
+        return;
+    }
+    for (y = 0; y < vt_rows(vtTerm); y++) {
+        const vt_cell *row = vt_row(vtTerm, y, &n);
+
+        for (x = 0; x < n; x++) {
+            UBYTE b[5];
+            b[0] = (UBYTE)(row[x].ch & 255); b[1] = (UBYTE)(row[x].ch >> 8);
+            b[2] = (UBYTE)row[x].fg; b[3] = (UBYTE)row[x].bg; b[4] = (UBYTE)row[x].attr;
+            for (k = 0; k < 5; k++) {
+                crc ^= b[k];
+                for (j = 0; j < 8; j++)
+                    crc = (crc >> 1) ^ (0xEDB88320UL & (0UL - (crc & 1)));
+            }
+        }
+    }
+    crc ^= 0xFFFFFFFFUL;
+    FPrintf(f, (STRPTR)"vtwrite %ld\nconwrite %ld\nrows %ld\ncols %ld\ncrc %08lx\n",
+            (LONG)dbgVtWriteCount, (LONG)dbgConWriteCount, (LONG)vt_rows(vtTerm), (LONG)term_cols,
+            (LONG)crc);
+    FPrintf(f, (STRPTR)"scrolldraws %ld\nscrolloff %ld\nscrollback %ld\nutf8conv %ld\n",
+            (LONG)dbgScrollDraws, (LONG)vtScrollOff, (LONG)vt_scrollback_lines(vtTerm),
+            (LONG)dbgUtf8Conv);
+    FPrintf(f, (STRPTR)"modes %08lx\nmouseev %ld owned %ld out %ld replybytes %ld pix %ld,%ld cell r%ld c%ld\n", (LONG)vt_modes(vtTerm), (LONG)dbgMouseEvents, (LONG)dbgMouseOwned, (LONG)dbgMouseOut, (LONG)dbgReplyBytes, (LONG)dbgMouseX, (LONG)dbgMouseY, (LONG)dbgMouseRow, (LONG)dbgMouseCol);
+    FPrintf(f, (STRPTR)"title");
+    for (k = 0; dbgTitle[k]; k++)
+        FPrintf(f, (STRPTR)" %02lx", (LONG)dbgTitle[k]);
+    FPrintf(f, (STRPTR)"\n");
+    if (win)
+        FPrintf(f, (STRPTR)"win %ld x %ld border L%ld R%ld T%ld B%ld inner %ld x %ld cells %ld x %ld px (term_x0 %ld term_y0 %ld xs %ld) screen depth %ld\n",
+                (LONG)win->Width, (LONG)win->Height, (LONG)win->BorderLeft, (LONG)win->BorderRight,
+                (LONG)win->BorderTop, (LONG)win->BorderBottom,
+                (LONG)(win->Width - win->BorderLeft - win->BorderRight),
+                (LONG)(win->Height - win->BorderTop - win->BorderBottom),
+                (LONG)(term_cols << term_xs), (LONG)(term_rows << 3), (LONG)term_x0, (LONG)term_y0,
+                (LONG)term_xs, (LONG)win->WScreen->RastPort.BitMap->Depth);
+    for (y = 0; y < vt_rows(vtTerm); y++) {
+        const vt_cell *row = vt_row(vtTerm, y - vtScrollOff, &n);
+
+        for (x = 0; row && x < n && np < 24; x++) {
+            vt_color fg, bg;
+            vt_cell c = row[x];
+
+            if (c.ch == ' ' && c.bg == VT_COLOR_DEFAULT)
+                continue;
+            vt_resolve_colors(vtTerm, &c, &fg, &bg);
+            if (c.fg != VT_COLOR_DEFAULT || c.bg != VT_COLOR_DEFAULT) {
+                FPrintf(f, (STRPTR)"pen y%ld x%ld ch %lx fgraw %lx fgpen %ld bgpen %ld\n", (LONG)y, (LONG)x,
+                        (LONG)c.ch, (LONG)c.fg, (LONG)Vt_PenFor(fg, prefs.AnsiColors),
+                        (LONG)Vt_PenFor(bg, prefs.AnsiColors));
+                np++;
+            }
+        }
+    }
+    for (y = 0; y < vt_rows(vtTerm); y++) {
+        const vt_cell *row = vt_row(vtTerm, y - vtScrollOff, &n);
+
+        for (x = 0; row && x < n; x++)
+            FPutC(f, (row[x].ch >= 32 && row[x].ch < 127) ? (LONG)row[x].ch : (LONG)'.');
+        FPutC(f, (LONG)'\n');
+    }
+    for (y = 0; y < vt_rows(vtTerm); y++) {          /* MA2-12: real cell codepoints of non-ASCII cells */
+        const vt_cell *row = vt_row(vtTerm, y - vtScrollOff, &n);
+
+        for (x = 0; row && x < n; x++)
+            if (row[x].ch >= 127)
+                FPrintf(f, (STRPTR)"cp y%ld x%ld %lx\n", (LONG)y, (LONG)x, (LONG)row[x].ch);
+    }
+    /* MA2-9 / MA2-10: true-colour flag, pens obtained, and the pixels of the first RGB-fg cell */
+    FPrintf(f, (STRPTR)"tc vtTrueColour %ld vtTcN %ld obtaincalls %ld lastpen %ld\n", (LONG)vtTrueColour, (LONG)vtTcN,
+            dbgTcCalls, dbgTcLastPen);
+    {
+        int n0;
+        const vt_cell *r0 = vt_row(vtTerm, 0, &n0);
+        if (r0 && n0 > 0)
+            FPrintf(f, (STRPTR)"cell00 ch %lx fg %lx bg %lx\n", (LONG)r0[0].ch, (LONG)r0[0].fg, (LONG)r0[0].bg);
+    }
+    for (k = 0; k < vtTcN && k < 8; k++)
+        FPrintf(f, (STRPTR)"tcslot %ld rgb %06lx pen %ld\n", (LONG)k, (LONG)vtTc[k].rgb, (LONG)vtTc[k].pen);
+    if (win && scr) {
+        BOOL found = FALSE;
+        cgx = OpenLibrary((STRPTR)"cybergraphics.library", 40);
+        FPrintf(f, (STRPTR)"cgx %lx\n", (LONG)cgx);
+        for (y = 0; y < vt_rows(vtTerm) && !found; y++) {
+            const vt_cell *row = vt_row(vtTerm, y, &n);
+            for (x = 0; row && x < n && !found; x++) {
+                int px, py, np2 = 0;
+                LONG seen[8];
+                if (row[x].ch == ' ' || row[x].fg < 256 || row[x].fg == VT_COLOR_DEFAULT)
+                    continue;
+                found = TRUE;
+                FPrintf(f, (STRPTR)"rgbcell y%ld x%ld ch %lx fgraw %lx base px %ld,%ld\n", (LONG)y, (LONG)x,
+                        (LONG)row[x].ch, (LONG)row[x].fg, (LONG)(term_x0 + (x << term_xs)), (LONG)(term_y0 + y * 8));
+                for (py = 0; py < 8; py++)
+                    for (px = 0; px < (8 << term_xs); px++) {
+                        LONG pen = ReadPixel(&scr->RastPort, term_x0 + (x << term_xs) + px, term_y0 + y * 8 + py);
+                        LONG rgbp = cgx ? (LONG)DbgReadRGBPixel(cgx, &scr->RastPort, (UWORD)(term_x0 + (x << term_xs) + px), (UWORD)(term_y0 + y * 8 + py)) : -1L;
+                        ULONG rgb[3];
+                        int q, dup = 0;
+                        for (q = 0; q < np2; q++)
+                            if (seen[q] == (pen ^ rgbp))
+                                dup = 1;
+                        if (dup || np2 >= 8)
+                            continue;
+                        seen[np2++] = pen ^ rgbp;
+                        GetRGB32(scr->ViewPort.ColorMap, (ULONG)pen, 1, rgb);
+                        FPrintf(f, (STRPTR)"pixel dx%ld dy%ld pen %ld rgb32 %08lx %08lx %08lx rgbpixel %08lx\n", (LONG)px, (LONG)py,
+                                pen, (LONG)rgb[0], (LONG)rgb[1], (LONG)rgb[2],
+                                rgbp);
+                    }
+            }
+        }
+    }
+    if (cgx)
+        CloseLibrary(cgx);
+    FPrintf(f, (STRPTR)"ansi");
+    for (k = 0; k < 16; k++)
+        FPrintf(f, (STRPTR)" %03lx", (LONG)prefs.AnsiColors[k]);
+    FPrintf(f, (STRPTR)"\n");
+    Close(f);
+}
+#endif
+
 static void VtClose(void)
 {
+#ifdef _DEBUG
+    VtDumpGrid("T:vtgrid.txt", TRUE);
+#endif
     while (vtTcN > 0)
         ReleasePen(scr->ViewPort.ColorMap, (ULONG)vtTc[--vtTcN].pen);
     vtTcLast = 0;
@@ -464,6 +642,9 @@ static int VtScrollView(int delta)
     VtSyncCursor();
     cursor_show();
     VtLayersUnlock();
+#ifdef _DEBUG
+    VtDumpGrid("T:vtscroll.txt", FALSE);    /* MA4-5: what the scrollback view shows */
+#endif
     return vtScrollOff;
 }
 
@@ -492,6 +673,9 @@ static BOOL VtScrollKey(UWORD rawkey, BOOL shift)
  * changed, put the cursor back. Drawing happens with the cursor hidden. */
 static void VtWrite(const UBYTE *data, long len)
 {
+#ifdef _DEBUG
+    dbgVtWriteCount++;
+#endif
     if (vtScrollOff)
         VtScrollView(-vtScrollOff);     /* new output: back to the live grid */
     VtLayersLock();
@@ -515,6 +699,9 @@ static void VtWrite(const UBYTE *data, long len)
     cursor_show();
     VtLayersUnlock();
     VtTitleSync();
+#ifdef _DEBUG
+    VtDumpGrid("T:vtlive.txt", FALSE);      /* the live grid after this write (rig only) */
+#endif
     VtSyncMouseIdcmp();             /* ?1002 / ?1003 may have changed */
 }
 

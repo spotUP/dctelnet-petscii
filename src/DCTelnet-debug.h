@@ -3,6 +3,16 @@
 
 UBYTE socketLibSigBit = 0;
 
+// MA1-10 sentinels: write calls the BBS bytes went through, built-in renderer (VtWrite) and
+// console.device / ibmcon.device (ConWrite). VtClose writes them to T:vtgrid.txt.
+ULONG dbgVtWriteCount = 0;
+ULONG dbgConWriteCount = 0;
+ULONG dbgScrollDraws = 0;       // VtDraw calls with vtScrollOff > 0 (MA4-5)
+ULONG dbgUtf8Conv = 0;          // DisplayBytes UTF-8 -> CP437 conversions (MA2-12)
+ULONG dbgMouseEvents = 0, dbgMouseOwned = 0, dbgMouseOut = 0, dbgReplyBytes = 0;   // MA3-9
+LONG dbgMouseX = 0, dbgMouseY = 0, dbgMouseCol = 0, dbgMouseRow = 0;
+UBYTE dbgTitle[64];             // the window title bytes VtSetTitle applied (MA3-2)
+
 void Pause(void)
 {
     char c;
