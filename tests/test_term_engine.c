@@ -1249,6 +1249,7 @@ static void test_aga_pens_text_and_picture_on_an_8_plane_screen(void)
     vt_put("\x1b[38;5;196mA");
     assert(obtainCalls == 1 && probe[0].fg == 16 && term_pen_map[16] == 50);
     /* the picture: the engine's palette colour gets a pen of its own through VtPenFor */
+    vt_put("\033_Ga=d,d=A\033\\");      /* a reopen keeps the screen: drop earlier tests' pictures */
     chunkyCalls = 0;
     vtImgRuns = 0;
     vt_put("\x1b[H");                    /* the picture goes at the cursor: home */
