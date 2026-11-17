@@ -146,7 +146,8 @@ static void Text(struct RastPort *rp, STRPTR s, ULONG n)
 {
     char line[160];
     snprintf(line, sizeof(line), "Text(%d,%d fg%d bg%d \"%.*s\")\n", rp->cx, rp->cy, rp->FgPen, rp->BgPen, (int)n, s);
-    strcat(calls, line);
+    if (strlen(calls) + strlen(line) < sizeof(calls))   /* a full log drops the rest (a whole screen of runs) */
+        strcat(calls, line);
 }
 #define FB_W 700
 #define FB_H 420
@@ -2198,6 +2199,158 @@ static void test_kgr_a_redraw_beside_a_door_picture_does_not_repaint_it(void)
     VtClose();
 }
 
+/* KG-FOCUS: the LiveChat door's picture (rows 8-17, cols 25-76, 1-based) and the two focus clicks the board
+ * recorded (thoughts/shared/research/2026-11-12-livechat-focus-picture.md): a click on the chat log's border, then
+ * one in the input box. Each repaints only the log border ('|' at cols 23 and 80 on the picture's rows, xterm
+ * colour 255 or 204), the input box and the menu bar: no kitty command, no erase, nothing in the picture's cells.
+ * After each, every picture pixel keeps its pen, and every pen the picture uses keeps its colour. */
+static const char kfp_border_click[] =
+    "\033[23;2H\033[0;49;38;5;255m                                                                        "
+    "\033[2;23H\033[0;49;38;5;255m.-\033[2;31H-------------------------------------------------.\033[3;23H"
+    "|\033[3;80H|\033[4;23H|\033[4;80H|\033[5;23H|\033[5;80H|\033[6;23H|\033[6;80H|\033[7;23H|\033[7;80H|\033"
+    "[8;23H|\033[8;80H|\033[9;23H|\033[9;80H|\033[10;23H|\033[10;80H|\033[11;23H|\033[11;80H|\033[12;23H|\033"
+    "[12;80H|\033[13;23H|\033[13;80H|\033[14;23H|\033[14;80H|\033[15;23H|\033[15;80H|\033[16;23H|\033[16;8"
+    "0H|\033[17;23H|\033[17;80H|\033[18;23H|\033[18;80H|\033[19;23H|\033[19;80H|\033[20;23H|\033[20;80H|\033"
+    "[21;23H`--------------------------------------------------------'\033[22;1H\033[0;49;38;5;204m.-\033["
+    "22;12H--------------------------------------------------------------.\033[23;1H|\033[23;74H|\033[24;1"
+    "H`------------------------------------------------------------------------'\033[1;47H\033[0;48;5;204;"
+    "38;5;204m /\033[1;46H\033[0;48;5;204;38;5;204m /\033[1;45H\033[0;48;5;204;38;5;204m /\033[1;44H\033[0"
+    ";48;5;204;38;5;204m /\033[1;43H\033[0;48;5;204;38;5;204m /\033[1;42H\033[0;48;5;204;38;5;204m /\033[1"
+    ";41H\033[0;48;5;204;38;5;204m /\033[1;40H\033[0;48;5;204;38;5;204m /\033[1;39H\033[0;48;5;204;38;5;20"
+    "4m /";
+
+static const char kfp_input_click[] =
+    "\033[2;23H\033[0;49;38;5;204m.-\033[2;31H-------------------------------------------------.\033[3;23H"
+    "|\033[3;80H|\033[4;23H|\033[4;80H|\033[5;23H|\033[5;80H|\033[6;23H|\033[6;80H|\033[7;23H|\033[7;80H|\033"
+    "[8;23H|\033[8;80H|\033[9;23H|\033[9;80H|\033[10;23H|\033[10;80H|\033[11;23H|\033[11;80H|\033[12;23H|\033"
+    "[12;80H|\033[13;23H|\033[13;80H|\033[14;23H|\033[14;80H|\033[15;23H|\033[15;80H|\033[16;23H|\033[16;8"
+    "0H|\033[17;23H|\033[17;80H|\033[18;23H|\033[18;80H|\033[19;23H|\033[19;80H|\033[20;23H|\033[20;80H|\033"
+    "[21;23H`--------------------------------------------------------'\033[22;1H\033[0;49;38;5;255m.-\033["
+    "22;12H--------------------------------------------------------------.\033[23;1H|\033[0;7;104;37m \033"
+    "[0;104;37m                                                                       \033[0;49;38;5;255m|"
+    "\033[24;1H`------------------------------------------------------------------------'\033[1;38H\033[0;"
+    "48;5;204;38;5;204m /\033[1;69H \033[1;37H\033[0;48;5;204;38;5;204m /\033[1;68H /\033[1;37H\033[0;48;5"
+    ";204;38;5;204m/\033[1;67H /\033[1;66H\033[0;48;5;204;38;5;204m /\033[1;65H\033[0;48;5;204;38;5;204m /"
+    "\033[1;64H\033[0;48;5;204;38;5;204m /\033[1;63H\033[0;48;5;204;38;5;204m /\033[1;62H\033[0;48;5;204;3"
+    "8;5;204m /\033[1;61H\033[0;48;5;204;38;5;204m /";
+
+static int kfp_pens_changed(const UBYTE *snap, const unsigned long *rgb, const unsigned char *live)
+{
+    int x, y, n = 0;
+
+    for (y = 0; y < 10 * 8; y++)
+        for (x = 0; x < 52 * 8; x++) {
+            long o = (long)(TERM_PY(7) + y) * FB_W + TERM_PX(24) + x;
+            UBYTE p = snap[o];
+
+            if (live[p] && (!obtainLive[p] || obtainRgb[p] != rgb[p]))
+                n++;
+        }
+    return n;
+}
+
+static int kfpFails;
+static void kfp_run_v(UBYTE depth, ULONG flags, int budget, const char *bsuf, const char *isuf, int chunk, int alpha);
+
+static void kfp_put(const char *a, const char *b, int chunk)
+{
+    static char all[4096];
+    long n, off;
+
+    snprintf(all, sizeof(all), "%s%s", a, b ? b : "");
+    n = (long)strlen(all);
+    for (off = 0; off < n; off += chunk) {
+        calls[0] = 0;
+        VtWrite((const UBYTE *)all + off, n - off > chunk ? chunk : n - off);
+    }
+}
+
+static void kfp_run(UBYTE depth, ULONG flags, int budget)
+{
+    kfp_run_v(depth, flags, budget, NULL, NULL, 100000, 255);
+}
+
+static void kfp_run_v(UBYTE depth, ULONG flags, int budget, const char *bsuf, const char *isuf, int chunk, int alpha)
+{
+    static unsigned char raw[100 * 75 * 4];
+    static char b64[sizeof(raw) / 3 * 4 + 8], msg[4200];
+    static UBYTE snap[sizeof(chunkyFb)];
+    static unsigned long rgb[256];
+    static unsigned char live[256];
+    int i, n, off, step;
+    const char *click[2];
+
+    xterm_begin_on(depth, flags);
+    obtainBudget = budget;
+    memset(chunkyFb, 0xFF, sizeof(chunkyFb));
+    calls[0] = 0;
+    vt_put(kfp_input_click);                    /* the door's screen before the picture: the input box has focus */
+    for (i = 0; i < 100 * 75; i++) {
+        raw[i * 4] = (unsigned char)(i % 100 * 2);
+        raw[i * 4 + 1] = (unsigned char)(i / 100 * 3);
+        raw[i * 4 + 2] = (unsigned char)(255 - i % 100 * 2);
+        raw[i * 4 + 3] = (unsigned char)(i % 100 < 10 || i / 100 < 5 ? alpha : 255);
+    }
+    kg32_b64(b64, raw, (int)sizeof(raw));
+    n = (int)strlen(b64);
+    for (off = 0; off < n; off += 4000) {
+        int take = n - off > 4000 ? 4000 : n - off;
+
+        if (!off)
+            snprintf(msg, sizeof(msg), "\033_Ga=t,f=32,s=100,v=75,i=1,q=2,m=%d;", off + take < n);
+        else
+            snprintf(msg, sizeof(msg), "\033_Gm=%d;", off + take < n);
+        strncat(msg, b64 + off, (size_t)take);
+        strcat(msg, "\033\\");
+        calls[0] = 0;
+        vt_put(msg);
+    }
+    calls[0] = 0;
+    vtImgRuns = 0;
+    vt_put("\0337\033[8;25H\033_Ga=p,i=1,c=52,r=10,p=1,C=1,q=2\033\\\0338");
+    assert(vtImgRuns > 0);
+    click[0] = kfp_border_click;
+    click[1] = kfp_input_click;
+    for (step = 0; step < 4; step++) {
+        int text, changed, recoloured;
+
+        memcpy(snap, chunkyFb, sizeof(chunkyFb));
+        memcpy(rgb, obtainRgb, sizeof(rgb));
+        memcpy(live, obtainLive, sizeof(live));
+        probes = 0;
+        vtImgRuns = 0;
+        vtImgFills = 0;
+        chunkyOff = 0;
+        calls[0] = 0;
+        kfp_put(click[step & 1], (step & 1) ? isuf : bsuf, chunk);
+        text = kgs_text_on_picture();
+        changed = kgr_fb_changed(snap, 24, 7, 52 * 8, 10 * 8);
+        recoloured = kfp_pens_changed(snap, rgb, live);
+        printf("KG-FOCUS depth %d alpha %d chunk %d step %d (%s click): text cells on picture %d, picture runs %d, pixels changed %d, "
+               "pixels whose pen changed colour %d\n", depth, alpha, chunk, step, (step & 1) ? "input" : "border", text,
+               (int)vtImgRuns + (int)vtImgFills, changed, recoloured);
+        kfpFails += (alpha == 255 && text != 0) || changed != 0 || recoloured != 0;
+    }
+    VtClose();
+}
+
+static void test_kfp_the_door_focus_clicks_leave_its_picture_shown(void)
+{
+    kfp_run(5, 0, 12);                          /* native chipset: 5 planes, 12 pens free for the picture's picker */
+    kfp_run(4, BMF_STANDARD, -1);
+    kfp_run(6, 0, 44);
+    kfp_run(7, 0, 108);
+    kfp_run(8, 0, 236);
+    kfp_run(24, 0, -1);
+    kfp_run_v(8, 0, 236, "\033[?25l", "\033[23;3H\033[?25h", 100000, 255);
+    kfp_run_v(5, 0, 12, "\033[?25l", "\033[23;3H\033[?25h", 100000, 255);
+    kfp_run_v(8, 0, 236, "\033[12;30H\033[?25h", "\033[23;3H", 100000, 255);
+    kfp_run_v(8, 0, 236, NULL, NULL, 61, 255);
+    kfp_run_v(8, 0, 236, NULL, NULL, 100000, 0);
+    kfp_run_v(5, 0, 12, NULL, NULL, 100000, 0);
+    assert(kfpFails == 0);
+}
+
 static const unsigned char kg32_bars[8][3] = {
     {191, 191, 191}, {191, 191, 0}, {0, 191, 191}, {0, 191, 0}, {191, 0, 191}, {191, 0, 0}, {0, 0, 191}, {0, 0, 0}
 };
@@ -3725,6 +3878,7 @@ int main(void)
     test_kg8_a_kitty_picture_through_vtwrite_is_drawn_and_a_query_answered();
     test_kgs_a_scrolling_opaque_picture_is_not_painted_over_its_text_cells();
     test_kgr_a_redraw_beside_a_door_picture_does_not_repaint_it();
+    test_kfp_the_door_focus_clicks_leave_its_picture_shown();
     test_kg32_a_picture_on_a_5_plane_screen_with_12_free_pens_keeps_its_colours();
     test_kg32_a_many_colour_picture_with_few_colours_on_top_keeps_its_lower_colours();
     test_sixel_32_a_many_register_picture_with_few_colours_on_top_keeps_its_lower_colours();
